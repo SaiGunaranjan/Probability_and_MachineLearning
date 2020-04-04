@@ -9,6 +9,7 @@ Problem Statement: If you were to pick up points randomly from a square grid of 
 and then find the distance of the point from the centre of the square, what is the mean distance 
 of the points from the centre of the square grid. It turns out that the mean distance is 
 actually the universal parabolic constant:  sqrt(2) + log(1+sqrt(2)) ~ 2.2955
+In this case, I obtain the result using Monte-Carlo runs. The result can also be derived as a closed form expression.
 
 For more details refer to the twitter thread by Tamas Gorbe:
     https://twitter.com/TamasGorbe/status/1246014582113492994
