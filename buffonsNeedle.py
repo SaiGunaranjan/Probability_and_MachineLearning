@@ -3,6 +3,15 @@
 Created on Sat Apr  4 21:33:35 2020
 
 @author: saiguna
+
+Problem Statement: Estimate the value of pi from the Buffon's needle experiment.
+
+References: My Monte Carlo simulation model is similar to the model as presented in this link:
+    https://simonensemble.github.io/2018-04-11-buffon/
+
+
+
+
 """
 
 import numpy as np
