@@ -8,8 +8,8 @@ Created on Sat Jun  3 23:45:29 2023
 
 """ This code contains the 1d implementation of the popular Expectation Maximization(EM) algorithm.
 I have implemented this algorithm based on the videos of Arun Rajkumar of IIT Madras. The algorithm is
-beautifully explained in the video lectures. I have also referred the EM video lecture by Alexander Ihler for the code implementation part.
-The derivation of this algo is available in Arun's videos and also in the CS229 course notes of Andrew NG.
+beautifully explained in the video lectures. I have also referred the EM video lecture by Alexander Ihler for the code implementation
+part. The derivation of this algo is available in Arun's videos and also in the CS229 course notes of Andrew NG.
 In the course notes, he explains how the convex combination used in the Jensen's inequality can be interpreted as an Expectation.
 For a concave function f(x), f(E[x]) >= E[f(x)]. This is a very crucial interpretation and this is how the Log likelihood of a mixture of
 gaussians is converted to a simple form which can be analytically computed"""
