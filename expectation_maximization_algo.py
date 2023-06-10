@@ -61,14 +61,18 @@ print('Variance', varianceArrayEM)
 print('\n')
 
 numIterations = 15
-logLikelihoodArray = np.zeros((numIterations))
+logLikelihoodArray = np.zeros((numIterations),dtype=np.float32)
+estMean = np.zeros((numIterations,numClusters),dtype=np.float32)
+estVar = np.zeros((numIterations,numClusters),dtype=np.float32)
+estPriors = np.zeros((numIterations,numClusters),dtype=np.float32)
+
 plt.figure(3,figsize=(20,10))
 for iterCount in range(numIterations):
     """ Step 2: E step. Compute the posteriors(labda_ij) of the latent random variables (P(z/x))"""
     """ For this, we need to compute P(x/z)"""
 
     Pxcondz =   1/(np.sqrt(2 * np.pi * varianceArrayEM[None,:]**2)) * np.exp( - (dataPointsArray[:,None] - meanArrayEM[None,:])**2 / (2 * varianceArrayEM[None,:]**2))
-    Px = np.sum(Pxcondz,axis=1)
+    Px = np.sum(Pxcondz*priorProbArrayEM[None,:],axis=1)
     Pzcondx =  priorProbArrayEM[None,:] * (Pxcondz / Px[:,None]) # lamda_ij (index i for the data point and index j for the cluster)
     logLikelihood = np.sum(np.log10(Px))
     logLikelihoodArray[iterCount] = logLikelihood
@@ -77,6 +81,12 @@ for iterCount in range(numIterations):
     meanArrayEM = np.sum(dataPointsArray[:,None] * Pzcondx, axis=0)/ np.sum(Pzcondx,axis=0)
     varianceArrayEM = np.sum(((dataPointsArray[:,None] - meanArrayEM[None,:])**2) * Pzcondx,axis=0)/ np.sum(Pzcondx,axis=0)
     priorProbArrayEM = np.sum(Pzcondx,axis=0)/numDataPoints
+
+    estMean[iterCount,:] = meanArrayEM
+    estVar[iterCount,:] = varianceArrayEM
+    estPriors[iterCount,:] = priorProbArrayEM
+
+
 
     print('Iteration: {}'.format(iterCount+1))
     print('Mean', meanArrayEM)
@@ -95,7 +105,7 @@ for iterCount in range(numIterations):
     plt.subplot(1,2,2)
     plt.title('P(z/x) in log scale')
     plt.plot(dataPointsArray,np.log10(Pzcondx))
-    plt.ylim([-50,0])
+    plt.ylim([-40,5])
     plt.grid(True)
 
     plt.pause(1)
