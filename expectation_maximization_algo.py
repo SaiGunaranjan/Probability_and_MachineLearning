@@ -12,7 +12,9 @@ beautifully explained in the video lectures. I have also referred the EM video l
 part. The derivation of this algo is available in Arun's videos and also in the CS229 course notes of Andrew NG.
 In the course notes, he explains how the convex combination used in the Jensen's inequality can be interpreted as an Expectation.
 For a concave function f(x), f(E[x]) >= E[f(x)]. This is a very crucial interpretation and this is how the Log likelihood of a mixture of
-gaussians is converted to a simple form which can be analytically computed
+gaussians is converted to a simple form which can be analytically computed.
+
+I will extend the EM algorithm implementation to 2D later on. The concept is similar.
 
 I have derived the EM algorithm based on the video tutoritals of Arun Rajkumar. The derivation is avilable in the below confluence page:
     https://saigunaranjan.atlassian.net/wiki/spaces/RM/pages/25329665/Expectation+maximization+algorithm
