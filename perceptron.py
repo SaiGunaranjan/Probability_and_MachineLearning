@@ -37,13 +37,16 @@ from sklearn import datasets
 
 plt.close('all')
 
+""" Create the dataset for binary class"""
 Data, labels = datasets.make_classification(n_samples=200,n_features=2,n_classes=2,n_clusters_per_class=1,n_redundant=0,\
                                             class_sep=1) # random_state = 4
 numDataPoints = Data.shape[0]
 numFeatures = Data.shape[1]
 numTrainingData = int(np.round(0.7 * numDataPoints))
 
+""" Convert the labels from 0/1 to -1/1 to handle the update equation in the perceptron algorithm"""
 labels[labels==0] -= 1
+
 trainingData = Data[0:numTrainingData,:]
 trainingLabels = labels[0:numTrainingData]
 
@@ -56,24 +59,33 @@ testingLabels = labels[numTrainingData::]
 testingDataClass0 = testingData[testingLabels==-1,:]
 testingDataClass1 = testingData[testingLabels==1,:]
 
-
-
 """ Perceptron training phase """
+
+""" Cap the maximum number of iterations of the perceptron algorithm. Ideally this should be a function of radius of
+farthest point in the dataset and the gamma margin of separation between the 2 classes."""
 numMaxIterations = 100
-wVec = np.zeros((numFeatures+1,),dtype=np.float32)
-alpha = 1
+
+""" The dataset might have a bias and need not always be around the origin. It could be shifted.
+For example, the data might be separated by the line wTx = -5. But the perceptron algorithm is defined assuming data
+doesn't have any bias. So, just checking for sign(wTx) to get the class labels will not be correct. We need to check if wTx >= -5 or wTx <-5.
+Also, we do not know the bias apriori. So, to handle this, we do the following.
+We include the unknown bias also as another parameter to the w vector. We then also append a 1 to the feature vector ([x, 1]). Hence,
+the dimensionality of both the feature vector and the parameter vector w are increased by 1.
+"""
+wVec = np.zeros((numFeatures+1,),dtype=np.float32) # +1 to take care of the bias in the data
+alpha = 1 # Added a momentum parameter but set it to 1 for now.
 for ele1 in range(numMaxIterations):
     for ele2 in range(numTrainingData):
         xVec = trainingData[ele2,:]
-        xVecExt = np.hstack((xVec,1))
+        xVecExt = np.hstack((xVec,1)) # Appending 1 to the feature vector as well.
         wtx = np.sum(wVec * xVecExt)
-        if (wtx*trainingLabels[ele2]) <= 0: # there is a small bug here
-            wVec = wVec + alpha*(xVecExt * trainingLabels[ele2])
+        if (wtx*trainingLabels[ele2]) <= 0: # The equal sign is to handle the initialization of w to 0 and hence an update is required at the first iteration itself.
+            wVec = wVec + alpha*(xVecExt * trainingLabels[ele2]) # Update equation for the perceptron algorithm : W_k+1 = W_k + x*y
 
 
 """ Testing phase"""
 numTestingData = testingData.shape[0]
-testingDataExt = np.hstack((testingData,np.ones((numTestingData,1))))
+testingDataExt = np.hstack((testingData,np.ones((numTestingData,1)))) # Appending 1s to the test data as well.
 
 wtx_test = testingDataExt @ wVec
 estLabels = np.zeros((testingLabels.shape),dtype=np.int32)
@@ -83,6 +95,7 @@ estLabels[wtx_test<0] = -1
 accuracy = np.mean(estLabels == testingLabels) * 100
 print('Accuracy of clasification = {0:.2f} % '.format(accuracy))
 
+""" Plotting the separating hyper plane"""
 separatingLineXcordinate = np.linspace(np.amin(Data[:,0])-2,np.amax(Data[:,0])+2,100)
 separatingLineYcordinate = (-wVec[-1] - wVec[0]*separatingLineXcordinate)/wVec[1]
 
