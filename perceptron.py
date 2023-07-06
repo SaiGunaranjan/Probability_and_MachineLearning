@@ -11,17 +11,21 @@ Created on Mon Jul  3 15:24:29 2023
 Perceptron algorithm
 
 In this script, I have implemented the perceptron algorithm. Perceptron algorithm is a supervised learning algorithm for
- binary classification when the data is linearly separable. The implementation is based on the video lectures of Arun Rajkumar and
+ binary classification when the data is linearly separable with a "gamma margin separability". The implementation is based on the video lectures of Arun Rajkumar and
 the blog:
 https://towardsdatascience.com/perceptron-explanation-implementation-and-a-visual-example-3c8e76b4e2d1
 
 For generating the 2 class data/labels, I have used the "make_classification" function of the datasets class imported from
 the sklearn package. Here we can mention the number of data samples, dimensionality of the feature vector, number of classes,
 number of clusters per class, amount of separation across the classes and so on. This is a very useful function for data generation.
-The perceptron algorithm converges when the training data is perfectly linearly separable. But when the training data is mixed
+The perceptron algorithm converges when the training data is perfectly linearly separable with a gamma margin i.e
+wTx must not just be greater than zero but is should be greater than 0 by a gamma margin. In other words,
+the perceptron algorithm converges if wTx*y >= gamma , for all x and a positive gamma. So,
+linear separability is only a necessary condition but not a sufficient condition. But when the training data is mixed
 i.e. not perfectly linearly separable, then the perceptron algorithm does not converge. This can be theoretically proved and
 the proof is given in the lectures of Arun Rajkumar.  But with actual real data, we cannot always ensure that the training data
-is linearly separable. So in order to implement the perceptron algorithm even in such cases, we need to cap the maximum number
+is linearly separable (or with a gamma margin). Hence, the perceptron algorithm might not converge at all.
+So in order to implement the perceptron algorithm even in such cases, we need to cap the maximum number
 of iterations that the perceptron algorithm runs for, else it will never converge. So, even in the code, I have fixed
 the maximum number of iterations for the percpetron algorithm. Theoretically, we can show that the time/number of iterations for
 the perceptron algorithm to converge is proportional to the radius of the farthest data point and inversely proportional to
