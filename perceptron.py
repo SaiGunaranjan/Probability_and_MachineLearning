@@ -29,7 +29,7 @@ So in order to implement the perceptron algorithm even in such cases, we need to
 of iterations that the perceptron algorithm runs for, else it will never converge. So, even in the code, I have fixed
 the maximum number of iterations for the percpetron algorithm. Theoretically, we can show that the time/number of iterations for
 the perceptron algorithm to converge is proportional to the radius of the farthest data point and inversely proportional to
-the gamma separation/margin between the closest pointss between the two classes. The closer the points of the two classes,
+the gamma separation/margin between the closest points between the two classes. The closer the points of the two classes,
 the more time the percpetron algorithm takes to converge.
 
 """
@@ -42,7 +42,7 @@ from sklearn import datasets
 plt.close('all')
 
 """ Create the dataset for binary class"""
-Data, labels = datasets.make_classification(n_samples=200,n_features=2,n_classes=2,n_clusters_per_class=1,n_redundant=0,\
+Data, labels = datasets.make_classification(n_samples=1000,n_features=2,n_classes=2,n_clusters_per_class=1,n_redundant=0,\
                                             class_sep=1) # random_state = 4
 numDataPoints = Data.shape[0]
 numFeatures = Data.shape[1]
