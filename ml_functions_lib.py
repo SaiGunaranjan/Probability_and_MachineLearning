@@ -88,7 +88,7 @@ def perceptron_test(testingData,wVec):
 def perceptron_accuracy(testingLabels, estLabels):
 
     accuracy = np.mean(estLabels == testingLabels) * 100
-    print('Accuracy of clasification = {0:.2f} % '.format(accuracy))
+    print('Accuracy of clasification for Perceptron = {0:.2f} % '.format(accuracy))
 
 
 
@@ -146,7 +146,7 @@ The above assumptions just make the math easier.
 """
 def logistic_regression_train(trainingData,trainingLabels):
 
-    """ Perceptron training phase """
+    """ Logistic Regression training phase """
 
     """ Cap the maximum number of iterations of the Logistic regression algorithm."""
     numMaxIterations = 100
@@ -202,4 +202,4 @@ def logistic_regression_test(testingData,wVec):
 def logistic_regression_accuracy(testingLabels, estLabels):
 
     accuracy = np.mean(estLabels == testingLabels) * 100
-    print('\nAccuracy of clasification = {0:.2f} % \n'.format(accuracy))
+    print('\nAccuracy of clasification Logistic regression = {0:.2f} % \n'.format(accuracy))
