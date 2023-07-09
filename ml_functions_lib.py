@@ -143,6 +143,9 @@ Note:
     In logistic regression algorithm, we treat the labels as 1, 0
 The above assumptions just make the math easier.
 
+Below blog has a good explanation for the logistic regression algorithm:
+    https://mlu-explain.github.io/logistic-regression/
+
 """
 def logistic_regression_train(trainingData,trainingLabels):
 
@@ -175,7 +178,11 @@ def logistic_regression_train(trainingData,trainingLabels):
         it can cause over flow while evaluating exp(-wTx) and also log(1+exp(-wTx)). This will result in NaNs.
         To avoid this, we use the inbuilt sigmoid function and the special.logsumexp function which evaluates
         log(sum of powers of e). We can pass the powers of e as an input vector to this function. The overflows are
-        gracefully handled by these functions"""
+        gracefully handled by these functions.
+        The references for these issues and fixes is available in the below links:
+            https://fa.bianp.net/drafts/derivatives_logistic.html
+
+        """
         p_Yequal1_condX = sigmoid(wTx)
         temp1 = np.zeros((numTrainingData))
         temp2 = np.hstack((temp1[:,None],-wTx[:,None]))
