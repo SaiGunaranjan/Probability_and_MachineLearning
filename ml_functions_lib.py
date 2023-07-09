@@ -5,11 +5,14 @@ Created on Fri Jul  7 22:59:03 2023
 @author: Sai Gunaranjan
 """
 
-
-
 import numpy as np
 from scipy.special import expit as sigmoid
 from scipy import special
+
+"""
+Naive Bayes is a generative machine learning model.
+Perceptron, Logistic regression, k-nearest neighbours, decision trees are discriminative ML models.
+"""
 
 """ Good reference for perceptron implementation:
     https://towardsdatascience.com/perceptron-explanation-implementation-and-a-visual-example-3c8e76b4e2d1
