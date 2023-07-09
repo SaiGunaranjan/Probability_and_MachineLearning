@@ -177,11 +177,10 @@ def logistic_regression_train(trainingData,trainingLabels):
         # p_Yequal1_condX = 1 / (1 + np.exp(-wTx))
         # logLikelihood[ele1] = np.sum(-wTx + wTx*trainingLabels - np.log(1+np.exp(-wTx)))
         """ The above piece of code sufferes from overflows. This is because, when the dot product wTx becomes very large
-        (both positive and negative),
-        it can cause over flow while evaluating exp(-wTx) and also log(1+exp(-wTx)). This will result in NaNs.
-        To avoid this, we use the inbuilt sigmoid function and the special.logsumexp function which evaluates
-        log(sum of powers of e). We can pass the powers of e as an input vector to this function. The overflows are
-        gracefully handled by these functions.
+        (both positive and negative), it can cause over flow while evaluating exp(-wTx) and also log(1+exp(-wTx)).
+        This will result in NaNs. To avoid this, we use the inbuilt sigmoid function and the special.logsumexp function
+        which evaluates log(sum of powers of e). We can pass the powers of e as an input vector to this function.
+        The overflows are gracefully handled by these functions.
         The references for these issues and fixes is available in the below links:
             https://fa.bianp.net/drafts/derivatives_logistic.html
 
@@ -190,7 +189,10 @@ def logistic_regression_train(trainingData,trainingLabels):
         temp1 = np.zeros((numTrainingData))
         temp2 = np.hstack((temp1[:,None],-wTx[:,None]))
         logLikelihood[ele1] = np.sum(-wTx + wTx*trainingLabels - special.logsumexp(temp2,axis=1)) #np.sum(-wTx + wTx*trainingLabels - np.log(sigmoid(wTx)))
+        wVec_Kminus1 = wVec
         wVec = wVec + alpha*np.sum(trainingDataExt * (trainingLabels[:,None] - p_Yequal1_condX[:,None]),axis=0)
+        fractionalErrorNorm = np.linalg.norm(wVec - wVec_Kminus1) / np.linalg.norm(wVec)
+        # print('Iter {0:d}, fractional error(dB) {1:.2f}'.format(ele1, 10*np.log10(np.abs(fractionalErrorNorm))))
 
     return wVec, logLikelihood
 
