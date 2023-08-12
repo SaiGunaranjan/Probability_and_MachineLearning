@@ -149,6 +149,8 @@ The above assumptions just make the math easier.
 Below blog has a good explanation for the logistic regression algorithm:
     https://mlu-explain.github.io/logistic-regression/
 
+There are other variants of the logostic regression called bayesian logistic regression, etc. which I will try to cover gradually
+
 """
 def logistic_regression_train(trainingData,trainingLabels):
 
