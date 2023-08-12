@@ -149,7 +149,10 @@ The above assumptions just make the math easier.
 Below blog has a good explanation for the logistic regression algorithm:
     https://mlu-explain.github.io/logistic-regression/
 
-There are other variants of the logostic regression called bayesian logistic regression, etc. which I will try to cover gradually
+There are other variants of the logostic regression called bayesian logistic regression, etc. which I will try to cover gradually.
+The bayesian regression logistic regression assumes a bayesian prior on the distribution of the W vector
+i.e. the elements of the W vector are assumed to be drawn from a distribution say Gaussian, etc.
+I will study this in more detail and then implement this.
 
 """
 def logistic_regression_train(trainingData,trainingLabels):
