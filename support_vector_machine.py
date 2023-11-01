@@ -5,6 +5,94 @@ Created on Sun Oct 22 17:30:10 2023
 @author: Sai Gunaranjan
 """
 
+"""
+Kernel version of SVM
+
+In this code, I have successfully implemented the kernel version of SVM. Specifically, I have used the
+make_circles dataset to test the kernel SVM. This datasets has 2 classes as 2 circular rings(donut shape).
+Since a normal SVM operates only on linearly separable datasets, we cannot directly apply the linear SVM.
+The circular spread data has second order relationships and this can be captured by the 2nd order polynomial kernel
+of the form (x_i.T x_j + 1)^p. I have implemented the kernel version of the SVM as a class as it ties up the methods
+and data nicely. The results are looking good for this dataset. In the subsequenct commits, I will further test the
+kernel SVM using the half moon datasets. For this, I cannot use a 2nd order poynomila kernel.
+Since this has much higher order non-linear relationships across its features, I will use the gaussian kernel,
+also called the radial basis function kernel. Kernel SVM is used when the original dataset is not linearly separable
+but has some higher order relationships between its features such that through some tranformation of the vector
+into a higher dimensional vector, the data then becomes linearly separable.
+For example, if we have the make_circles data where the two classes of the dataset are separated by rings,
+then we know that the relationship between the features is 2nd order. Now, by expanding the terms of the equation
+of a circle, we can write it as an inner product of 2 vectors in a 6 dimensional space. Hence, the circular ring data
+lies in a linear subspace in the 6 dimensional transformed subspace. So, in order to perform SVM on the ring dataset,
+we first need to transform the vector from the 2 dimensional space to a 6 dimensional space through a
+tranformation (say Phi) and then perform SVM in the 6 dimensional space. So then, we will find a separating hyperplane(W)
+also in the 6 dimensional space. Also, once we perform the tranformation of the datapoints from 2D space to a 6D space,
+we then need to perform pairwise dot products to get the xTx (in this case, after transformation it becomes
+Phi(x)T phi(X)) which is required for evaluating:
+1. cost function
+2. wTx to obtain the class of the test data.
+
+So, the compute is high because of these 2 operations:
+1. Tranforming from low dimensional space to high dimensional space(size of the data increases)
+2. We need to evaluate pairwise dot products (xTx) in the higher dimensional space, which is also compute intensive.
+
+In the kernel SVM, we replace the operation xTx or xTy with the kernel matrix. The kernel matrix/function accomplishes
+both the above 2 operations at one go. It takes care of handling non-linear/higher order relationships between the
+features without explicitly tranforming to a higher dimensional space through what are know as kernel functions.
+Kernel functions are functions which compute dot products in higher dimensional spaces without explicitly tranforming
+the data to higher dimensional spaces. These are functions of the dot products in the lower dimenisonal spaces.
+Ex: (x_iT * x_j + 1)^2 is a kernel function for 2nd order relationships like donut/moon datasets.
+Kernel matrices satisfy 2 condtions:
+1. Kernel matrices are symmetric. This is because, inner products are symmetric operations and hence the matrix
+   is also symmetric.
+2. They are positive semidefinite. This means that the eigen values of a kernel matrix are non-negative.
+   This can be explained as follows. Kernel martices emulate the operation of pair wise dot products
+   xTx (in higher dimensional space). Now, we know that the nonzero eigen values of xTx and xxT are same
+   (this is a theorem and can be proved easily). But the eigen values of xxT are the variances of the projections
+   of the data onto principal component vectors (or Eigen vectors of xxT). And variance is non-negative and hence
+   the eigen value of xxT and hence xtx are non-negative. Hence the kernel matrix is a positive semi definite(PSD) matrix.
+This is called the Mercer's theorem. This is a strong (if and only if condition) to check if a function is a valid kernel
+or not.
+Alternatively, if we can find a Phi in a high dimensional space such that Phi(x_i)T * Phi(x_j) = K(x_i,x_j),
+then we can say that K is a valid kernel.
+
+
+Also, Now, I have a much better understanding of the penality term C imposed on the bribe. For a linearly separable
+dataset, all the points satisfy the condition Wtxi*yi >= 1. But if the data set is not completely linearly separable
+due to more noise in the data, then an ideal linear SVM(also called hard margin SVM) doesn't work. In such cases,
+all points in the dataset do no satisfy the condition Wtxi*yi >= 1. So we might have some points violating this condition.
+So, in order to make these points satisfy the separability constraint, we add a bribe to the points.
+So the constraints now become Wtxi*yi + e_i >= 1, where e_i is the bribe paid for each point to satisfy the condition.
+e_i (epsillon i) is a non-negative quantity. It is 0 for the points which already satisfy the condition Wtxi*yi >= 1 and
+it is positive for points which don't satisfy. Now, by relaxing the constraints, even W = 0 can be made to pass the
+linear separability constraints (by adding any number >1 as the epsillon). Since the goal of SVM is to find a W with
+the least norm satisfying the linear separability constraints, then under the new relaxed condtions,
+W=0 is the most suitable candidate since it has the the least norm (0) and also satisfies the linear separability
+constraints and we get a trivial solution for the separatig hyperplane. So, it means, the problem statement is
+not yet complete. What we are missing is that we have added bribes to relax the constraints and accomodate the
+noisy points of datasets (which may not always be linearly separable) but we are not penalizing the bribes added.
+So by adding this penalizer to the objective function and weighing it by say a parameter C, we can limit the bribes
+paid by each point to satisfy the linear constraints. So now the objective function becomes:
+
+min ||W||^2 / 2 + C * Sum(i=1, i=N)* e_i
+W,e_i
+
+s.t wTx_i * y_i + e_i >= 1 for all i,
+e_i >= 0 for all i
+
+This formulation is called the Soft margin SVM.
+
+A larger C implies, we are heavily penalizing the bribes and hence we are forcing a very small/no bribe for the points
+to satisy the linear separability condition. Hence, it like using a hard margin or the convention SVM with 0 bribes.
+This means that if we have some noisy points close to the separating hyperplane wTx = 0, then we are essentially using
+them as our support vectors. This means we are tring to fit for noise and this leads to overfitting. On the other hand,
+if we make C too small, then we are not penalizing the bribes at all and hence almost all the points can pass the
+linear constraints with arbitrarily choosing e_i. This will lead to a very relaxed SVM which does not accurately model
+the separation between the 2 classes and this results in under fitting. So it is essential to carefully choose C through
+cross validation on the training dataset.
+More explanation of the hyper parameter C is available in the below link:
+https://www.baeldung.com/cs/ml-svm-c-parameter#:~:text=Selecting%20the%20Optimal%20Value%20of%20C&text=depends%20on%20the%20specific%20problem,training%20error%20and%20margin%20width.
+
+"""
 
 import numpy as np
 from sklearn import datasets
