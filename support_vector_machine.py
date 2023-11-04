@@ -108,17 +108,42 @@ class SVM:
         self.testingData = testingData;
         self.trainingLabels = trainingLabels;
         self.numTrainingData = self.trainingData.shape[0]
-        self.Y = np.diag(self.trainingLabels)
+        self.Y = np.diag(self.trainingLabels) # Diagonal matrix of class labels (+1/-1)
+
+        """ Choice of hyper parameter C: Articles
+        https://www.baeldung.com/cs/ml-svm-c-parameter#:~:text=Selecting%20the%20Optimal%20Value%20of%20C&text=depends%20on%20the%20specific%20problem,training%20error%20and%20margin%20width.
+        """
+        self.C = 10#10#0.05#40000
+
+        """ Cap the maximum number of iterations of the gradient ascent step for solving the dual formulation
+        variable alpha."""
+        self.numMaxIterations = 1000#500
 
         return
+
+    def kernel_function(self,testdata):
+
+        """
+        Evaluates XTX or phi(X)Tphi(X) using kernel method
+        """
+        # testdata should be of dimension #datapoints x #features
+        # trainingData is of shape #datapoints x #features
+        numEvalPoints = testdata.shape[0]
+        kernel = ((self.trainingData @ testdata.T) + 1)**2# Polynomial kernel
+        self.oneVector_train = np.ones((self.numTrainingData,))
+        oneVector_test = np.ones((numEvalPoints,))
+        Iminus11T_train = np.eye(self.numTrainingData) - ((1/self.numTrainingData) * (self.oneVector_train[:,None] @ self.oneVector_train[None,:]))
+        Iminus11T_test = np.eye(numEvalPoints) - ((1/numEvalPoints) * (oneVector_test[:,None] @ oneVector_test[None,:]))
+        self.meanRemovedKernal = kernel#Iminus11T_train.T @ kernel @ Iminus11T_test # kernel
+
+        return
+
 
     def svm_train(self):
 
         """ SVM training phase """
 
-        """ Cap the maximum number of iterations of the gradient ascent step for solving the dual formulation
-        variable alpha."""
-        numMaxIterations = 1000#500
+
 
         """ The dataset might have a bias and need not always be around the origin. It could be shifted.
         For example, the data might be separated by the line wTx = -5. We do not know the bias apriori. So,
@@ -127,31 +152,23 @@ class SVM:
         ([x, 1]). Hence, the dimensionality of both the feature vector and the parameter vector w are increased by 1.
         """
 
-        Y = np.diag(self.trainingLabels)
-        oneVector = np.ones((self.numTrainingData,))
-        trainingDataExt = np.hstack((self.trainingData,np.ones((self.numTrainingData,1)))) # Appending 1s to the training data.
-        # X = trainingDataExt.T
-        X = self.trainingData.T
-        kernel = ((X.T @ X) + 1)**2# Polynomial kernel
-        Iminus11T = np.eye(self.numTrainingData) - ((1/self.numTrainingData) * (oneVector[:,None] @ oneVector[None,:]))
-        meanRemovedKernal = kernel#Iminus11T.T @ kernel @ Iminus11T # kernel
-        """ Choice of hyper parameter c: Articles
-        https://www.baeldung.com/cs/ml-svm-c-parameter#:~:text=Selecting%20the%20Optimal%20Value%20of%20C&text=depends%20on%20the%20specific%20problem,training%20error%20and%20margin%20width.
-        """
-        c = 10#10#0.05#40000
+        self.kernel_function(self.trainingData)
+
+        # trainingDataExt = np.hstack((self.trainingData,np.ones((self.numTrainingData,1)))) # Appending 1s to the training data.
+
         self.alphaVec = np.zeros((self.numTrainingData,),dtype=np.float32)
-        self.costFunctionDualProblem = np.zeros((numMaxIterations,),dtype=np.float32)
-        for ele1 in range(numMaxIterations):
-            self.costFunctionDualProblem[ele1] = (self.alphaVec @ oneVector) - (0.5 * (self.alphaVec[None,:] @ Y.T @ (meanRemovedKernal) @ Y @ self.alphaVec[:,None]))
+        self.costFunctionDualProblem = np.zeros((self.numMaxIterations,),dtype=np.float32)
+        for ele1 in range(self.numMaxIterations):
+            self.costFunctionDualProblem[ele1] = (self.alphaVec @ self.oneVector_train) - (0.5 * (self.alphaVec[None,:] @ self.Y.T @ (self.meanRemovedKernal) @ self.Y @ self.alphaVec[:,None]))
             eta = 1/((ele1+1))#1e-4#1/((ele1+1)**2) # Learning rate/step size. Typically set as 1/t or 1/t**2
-            gradient = oneVector - (Y.T @ (meanRemovedKernal) @ Y @ self.alphaVec) # Y.T @ (X.T @ X) @ Y can be moved outside the loop
+            gradient = self.oneVector_train - (self.Y.T @ (self.meanRemovedKernal) @ self.Y @ self.alphaVec) # Y.T @ (X.T @ X) @ Y can be moved outside the loop
             self.alphaVec = self.alphaVec + eta*gradient
             self.alphaVec[self.alphaVec<0] = 0 # box constraints. alpha should always be >=0
-            self.alphaVec[self.alphaVec>c] = c
+            self.alphaVec[self.alphaVec>self.C] = self.C
             # print('Min alpha val = {0:.5f}, Max alpha val = {1:.5f}'.format(np.amin(self.alphaVec),np.amax(self.alphaVec)))
         # Remove belowline
         # wVec_svm = X @ Y @ self.alphaVec # This is the actual wVec but it doesnt need to be explicitly computed
-        suppVecIndMargin = np.where((self.alphaVec>0) & (self.alphaVec<c))[0]
+        suppVecIndMargin = np.where((self.alphaVec>0) & (self.alphaVec<self.C))[0]
         print('Number of supporting vectors = {}'.format(len(suppVecIndMargin)))
 
         """ Reference for the below method of bias calculation is given in:
@@ -169,8 +186,8 @@ class SVM:
     def svm_test(self):
 
         """ Testing phase"""
-        numTestingData = self.testingData.shape[0]
-        testingDataExt = np.hstack((self.testingData,np.ones((numTestingData,1)))) # Appending 1s to the test data as well.
+        # numTestingData = self.testingData.shape[0]
+        # testingDataExt = np.hstack((self.testingData,np.ones((numTestingData,1)))) # Appending 1s to the test data as well.
         wtx_test = self.decision_function(self.testingData)
 
         estLabels = np.zeros((wtx_test.shape),dtype=np.int32)
@@ -180,21 +197,14 @@ class SVM:
         return estLabels
 
 
-    def decision_function(self,X):
+    def decision_function(self,Z):
+        """ Generates wTz, where,
+        w= wVec = X @ Y @ alpha,
+        wVecT*Z = alpha.T @ Y.T @ XTZ = alpha.T @ Y.T @ K where K is the kernel matrix
+        Z can be training data or test data"""
 
-        train = self.trainingData.T # d x n
-        test = X.T # d x k
-        numEvalPoints = test.shape[1]
-        kernel = ((train.T @ test) + 1)**2# Polynomial kernel
-        oneVector_train = np.ones((self.numTrainingData,))
-        oneVector_test = np.ones((numEvalPoints,))
-        Iminus11T_train = np.eye(self.numTrainingData) - ((1/self.numTrainingData) * (oneVector_train[:,None] @ oneVector_train[None,:]))
-        Iminus11T_test = np.eye(numEvalPoints) - ((1/numEvalPoints) * (oneVector_test[:,None] @ oneVector_test[None,:]))
-        meanRemovedKernal = kernel#Iminus11T_train.T @ kernel @ Iminus11T_test # kernel
-
-        """ wVec = X @ Y @ alpha"""
-        """ wVec*X = alpha.T @ Y.T @ XTX = alpha.T @ Y.T @ K where K is the kernel matrix"""
-        wtx_test = self.alphaVec[None,:] @ self.Y.T @ meanRemovedKernal
+        self.kernel_function(Z)
+        wtx_test = self.alphaVec[None,:] @ self.Y.T @ self.meanRemovedKernal
         wtx_test = wtx_test.squeeze()
 
         return wtx_test
@@ -213,10 +223,10 @@ class SVM:
         yy = np.linspace(ylim[0], ylim[1], 30)
         YY, XX = np.meshgrid(yy, xx)
         xy = np.vstack([XX.ravel(), YY.ravel()]).T
-        Z = self.decision_function(xy).reshape(XX.shape)
+        wtx = self.decision_function(xy).reshape(XX.shape)
 
         # plot decision boundary and margins
-        ax.contour(XX, YY, Z, colors=['b', 'g', 'r'], levels=[-1, 0, 1], alpha=0.5,
+        ax.contour(XX, YY, wtx, colors=['b', 'g', 'r'], levels=[-1, 0, 1], alpha=0.5,
                         linestyles=['--', '-', '--'], linewidths=[2.0, 2.0, 2.0])
 
         # highlight the support vectors
