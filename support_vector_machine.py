@@ -74,6 +74,24 @@ Some of the other changes made in this commit are:
        changed based on the relationships between the features.
     3. Some code clean up.
 
+Centering the kernel:
+    When performing the transformation from low dimensional space to a higher dimensional space either explicitly
+    or using a kernel function, the transformed features might not be centered around origin. In other words,
+    transformed features may have a bias and this bias needs to be either removed or explicitly computed to get the
+    true/correct separating hyperplane. If we are explicitly transforming the eatures to a high dimensioanl space,
+    then we can remove the bias there before performing SVM. But if we are using kernels, we are not explicitly
+    computing the tranformed features in the high dimensional space and hence cannot mean in the tranformed space.
+    We are only computing the pair wise dot products in the high dimensional space using the kernel functions.
+    In this case, we don't have access to the transformed features and hence we need to remove the bias in the kernel itself.
+    This is called 'centering the kernel'. I have derived the closed form expression for centering the kernel.
+    Here's the link to my derivation:
+        https://saigunaranjan.atlassian.net/wiki/spaces/RM/pages/33423361/Kernel+centering
+    There is another reference where the centering of the kernel is derived. Both mine and the reference are matching.
+    Here's the link:
+        https://twitter.com/gabrielpeyre/status/1708346002334466170?t=zYHl9vjj6NVCzA3yCDJZVQ&s=08
+        https://en.wikipedia.org/wiki/Kernel_principal_component_analysis
+However, when I try to center the kernel in the code, the results are not satisfactory. Need to debug this.
+
 Also, Now, I have a much better understanding of the penality term C imposed on the bribe. For a linearly separable
 dataset, all the points satisfy the condition Wtxi*yi >= 1. But if the data set is not completely linearly separable
 due to more noise in the data, then an ideal linear SVM(also called hard margin SVM) doesn't work. In such cases,
@@ -158,6 +176,15 @@ class SVM:
             sigma = 0.1
             kernel = np.exp(-(np.linalg.norm(self.trainingData[:,:,None] - testdata.T[None,:,:], axis=1)**2)/(2*sigma**2)) # Radial basis function kernel e^(|| x - y||^2/(2sigma^2))
 
+        """ Centering the kernel
+
+        Here's the link to my derivation:
+            https://saigunaranjan.atlassian.net/wiki/spaces/RM/pages/33423361/Kernel+centering
+        There is another reference where the centering of the kernel is derived. Both mine and the reference are matching.
+        Here's the link:
+            https://twitter.com/gabrielpeyre/status/1708346002334466170?t=zYHl9vjj6NVCzA3yCDJZVQ&s=08
+            https://en.wikipedia.org/wiki/Kernel_principal_component_analysis
+        """
         self.oneVector_train = np.ones((self.numTrainingData,))
         oneVector_test = np.ones((numEvalPoints,))
         Iminus11T_train = np.eye(self.numTrainingData) - ((1/self.numTrainingData) * (self.oneVector_train[:,None] @ self.oneVector_train[None,:]))
