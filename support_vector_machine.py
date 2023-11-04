@@ -239,7 +239,7 @@ class SVM:
 
 
     def decision_boundary(self):
-
+        """ Plot the decision boundary/separating hyperplanes"""
 
         plt.scatter(self.trainingData[:, 0], self.trainingData[:, 1], c=self.trainingLabels, s=50, cmap=plt.cm.Paired, alpha=.5)
         ax = plt.gca()
@@ -255,14 +255,19 @@ class SVM:
         wtx = self.decision_function(xy).reshape(XX.shape)
 
         # plot decision boundary and margins
-        ax.contour(XX, YY, wtx, colors=['b', 'g', 'r'], levels=[-1, 0, 1], alpha=0.5,
+        CS = ax.contour(XX, YY, wtx, colors=['b', 'g', 'r'], levels=[-1, 0, 1], alpha=0.5,
                         linestyles=['--', '-', '--'], linewidths=[2.0, 2.0, 2.0])
 
+        labels = ['WTx = -1', 'WTx = 0','WTx = 1']
+        for i in range(len(labels)):
+            CS.collections[i].set_label(labels[i])
+
+        plt.legend(loc='upper left')
 
         # highlight the support vectors
         ax.scatter(self.trainingData[:, 0][self.alphaVec > 0.], self.trainingData[:, 1][self.alphaVec > 0.], s=50,
-                   linewidth=1, facecolors='none', edgecolors='k')
-
+                   linewidth=1, facecolors='none', edgecolors='k',label='support vectors (alpha > 0)')
+        plt.legend()
         plt.grid(True)
 
     def svm_accuracy(self,testingLabels, estLabels):
