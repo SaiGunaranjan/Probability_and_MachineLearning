@@ -27,9 +27,12 @@ we first need to transform the vector from the 2 dimensional space to a 6 dimens
 tranformation (say Phi) and then perform SVM in the 6 dimensional space. So then, we will find a separating hyperplane(W)
 also in the 6 dimensional space. Also, once we perform the tranformation of the datapoints from 2D space to a 6D space,
 we then need to perform pairwise dot products to get the xTx (in this case, after transformation it becomes
-Phi(x)T phi(X)) which is required for evaluating:
+Phi(x)T phi(x)) which is required for evaluating:
 1. cost function
 2. wTx to obtain the class of the test data.
+
+x is assumed to be of dimension #features x #datapoints in the theoretical formulation.
+But in my simulation the data is of dimension #datapoints x #features
 
 So, the compute is high because of these 2 operations:
 1. Tranforming from low dimensional space to high dimensional space(size of the data increases)
@@ -55,6 +58,21 @@ or not.
 Alternatively, if we can find a Phi in a high dimensional space such that Phi(x_i)T * Phi(x_j) = K(x_i,x_j),
 then we can say that K is a valid kernel.
 
+Implemented the RBF kernel for half moon datasets
+Now, I have implemented the RBF(Radial Basis Function) kernel for data which have higher order non-linear relationships
+between its features like half moon datasets, etc.
+For linear relationships(across features), we can use the polynomial kernel of degree 1.
+For 2nd order relationships, we can use the polynomial kernel of degree 2 (like circular datasets).
+Similarly for higher order non-linear relationships, we can use the more generic gaussian/rdial basis function kernel.
+This makes sense since e^x expansion has polynomials of infinite order/degree and hence can be use to model any kind of
+non-linearities across the features of the datasets.
+Some of the other changes made in this commit are:
+    1. Passing the type of kernel to be used (for feature modelling) to the SVM initialization based on the type of dataset.
+       For circular/donut datasets, we use the 2nd order polynomial kernel and for half moon datasets, we use the RBF kernel.
+    2. Polynomial kernel is controlled by a variable named 'order' to define the order/degree of the polynomail kernel
+       to be used. For now, since I'm using the donut dataset, I'm fixing the order to 2. But this can (and needs to) be
+       changed based on the relationships between the features.
+    3. Some code clean up.
 
 Also, Now, I have a much better understanding of the penality term C imposed on the bribe. For a linearly separable
 dataset, all the points satisfy the condition Wtxi*yi >= 1. But if the data set is not completely linearly separable
@@ -97,13 +115,16 @@ https://www.baeldung.com/cs/ml-svm-c-parameter#:~:text=Selecting%20the%20Optimal
 import numpy as np
 from sklearn import datasets
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+mpl.rcParams['figure.dpi'] = 300
 
 plt.close('all')
 
 class SVM:
 
-    def __init__(self, trainingData, testingData, trainingLabels):
-
+    def __init__(self, trainingData, testingData, trainingLabels, kernelType):
+        # testdata should be of dimension #datapoints x #features
+        # trainingData is of shape #datapoints x #features
         self.trainingData = trainingData;
         self.testingData = testingData;
         self.trainingLabels = trainingLabels;
@@ -119,6 +140,8 @@ class SVM:
         variable alpha."""
         self.numMaxIterations = 1000#500
 
+        self.kernelType = kernelType
+
         return
 
     def kernel_function(self,testdata):
@@ -126,10 +149,15 @@ class SVM:
         """
         Evaluates XTX or phi(X)Tphi(X) using kernel method
         """
-        # testdata should be of dimension #datapoints x #features
-        # trainingData is of shape #datapoints x #features
+
         numEvalPoints = testdata.shape[0]
-        kernel = ((self.trainingData @ testdata.T) + 1)**2# Polynomial kernel
+        if (self.kernelType == 'polynomial_kernel'):
+            order = 2
+            kernel = ((self.trainingData @ testdata.T) + 1)**order # Polynomial kernel (x_iTx_j + 1)^p
+        elif (self.kernelType == 'radial_basis_function_kernel'):
+            sigma = 0.1
+            kernel = np.exp(-(np.linalg.norm(self.trainingData[:,:,None] - testdata.T[None,:,:], axis=1)**2)/(2*sigma**2)) # Radial basis function kernel e^(|| x - y||^2/(2sigma^2))
+
         self.oneVector_train = np.ones((self.numTrainingData,))
         oneVector_test = np.ones((numEvalPoints,))
         Iminus11T_train = np.eye(self.numTrainingData) - ((1/self.numTrainingData) * (self.oneVector_train[:,None] @ self.oneVector_train[None,:]))
@@ -212,6 +240,7 @@ class SVM:
 
     def decision_boundary(self):
 
+
         plt.scatter(self.trainingData[:, 0], self.trainingData[:, 1], c=self.trainingLabels, s=50, cmap=plt.cm.Paired, alpha=.5)
         ax = plt.gca()
 
@@ -229,9 +258,12 @@ class SVM:
         ax.contour(XX, YY, wtx, colors=['b', 'g', 'r'], levels=[-1, 0, 1], alpha=0.5,
                         linestyles=['--', '-', '--'], linewidths=[2.0, 2.0, 2.0])
 
+
         # highlight the support vectors
         ax.scatter(self.trainingData[:, 0][self.alphaVec > 0.], self.trainingData[:, 1][self.alphaVec > 0.], s=50,
                    linewidth=1, facecolors='none', edgecolors='k')
+
+        plt.grid(True)
 
     def svm_accuracy(self,testingLabels, estLabels):
 
@@ -240,12 +272,13 @@ class SVM:
 
 
 
-Data, labels = datasets.make_circles(n_samples=500, noise=0.05, random_state=None, factor=0.5)
-# Data, labels =  datasets.make_moons(n_samples=500, noise=0.05, random_state=6) For this dataset, kernel has to change from polynomial to gaussian/radial basis function
+# Data, labels = datasets.make_circles(n_samples=500, noise=0.05, random_state=None, factor=0.5)
+# kernelType = 'polynomial_kernel'
 
+Data, labels =  datasets.make_moons(n_samples=1000, noise=0.05, random_state=6)
+kernelType = 'radial_basis_function_kernel'
 
 numDataPoints = Data.shape[0]
-numFeatures = Data.shape[1]
 numTrainingData = int(np.round(0.7 * numDataPoints))
 
 trainingData = Data[0:numTrainingData,:]
@@ -272,7 +305,7 @@ testingLabels_svm[testingLabels_svm==0] -= 1
 """ Remove bias/mean in the data"""
 # trainingData -= np.mean(trainingData,axis=0)[None,:]
 # testingData -= np.mean(testingData,axis=0)[None,:]
-svm_obj = SVM(trainingData, testingData, trainingLabels_svm)
+svm_obj = SVM(trainingData, testingData, trainingLabels_svm, kernelType)
 svm_obj.svm_train()
 estLabels_svm = svm_obj.svm_test()
 svm_obj.svm_accuracy(testingLabels_svm, estLabels_svm)
