@@ -128,6 +128,9 @@ cross validation on the training dataset.
 More explanation of the hyper parameter C is available in the below link:
 https://www.baeldung.com/cs/ml-svm-c-parameter#:~:text=Selecting%20the%20Optimal%20Value%20of%20C&text=depends%20on%20the%20specific%20problem,training%20error%20and%20margin%20width.
 
+Very good implementation and explanation of SVM is available here:
+    https://www.adeveloperdiary.com/data-science/machine-learning/support-vector-machines-for-beginners-training-algorithms/#:~:text=Once%20training%20has%20been%20completed%2C%20we%20can%20calculate%20the%20bias%20b
+
 """
 
 import numpy as np
