@@ -220,3 +220,93 @@ def logistic_regression_accuracy(testingLabels, estLabels):
 
     accuracy = np.mean(estLabels == testingLabels) * 100
     print('\nAccuracy of clasification Logistic regression = {0:.2f} % \n'.format(accuracy))
+
+
+"""
+
+I have implemented the soft margin SVM algorithm based on the video lectures of Arun Rajkumar.
+However, currently, my implementation of the SVM is not giving the same supporting hyperplanes as the
+sklearn SVM. I need to debug this. Also, there is another confusion regarding the estimation of bias term.
+Do we add a "1" to the feature vector and estimate the bias or do we explicitly estimate?
+I need to understand this as well.
+
+The derivation of the hard margin SVM based on Arun's video lectures is available here:
+    https://saigunaranjan.atlassian.net/wiki/spaces/RM/pages/28114945/Support+Vector+Machine
+
+SVM good reference article:
+https://www.adeveloperdiary.com/data-science/machine-learning/support-vector-machines-for-beginners-training-algorithms/
+"""
+
+def svm_train(trainingData,trainingLabels):
+
+    """ SVM training phase """
+
+    """ Cap the maximum number of iterations of the gradient ascent step for solving the dual formulation
+    variable alpha."""
+    numMaxIterations = 1000#500
+
+    numTrainingData = trainingData.shape[0]
+    # numFeatures = trainingData.shape[1]
+
+    """ The dataset might have a bias and need not always be around the origin. It could be shifted.
+    For example, the data might be separated by the line wTx = -5. We do not know the bias apriori. So,
+    to handle this, we do the following.
+    We include the unknown bias also as another parameter to the w vector. We then also append a 1 to the feature vector
+    ([x, 1]). Hence, the dimensionality of both the feature vector and the parameter vector w are increased by 1.
+    """
+
+    Y = np.diag(trainingLabels)
+    oneVector = np.ones((numTrainingData,))
+    trainingDataExt = np.hstack((trainingData,np.ones((numTrainingData,1)))) # Appending 1s to the training data.
+    X = trainingDataExt.T
+    # X = trainingData.T
+    """ Choice of hyper parameter c: Articles
+    https://www.baeldung.com/cs/ml-svm-c-parameter#:~:text=Selecting%20the%20Optimal%20Value%20of%20C&text=depends%20on%20the%20specific%20problem,training%20error%20and%20margin%20width.
+    """
+    c = 10#0.05#40000
+    alphaVec = np.zeros((numTrainingData,),dtype=np.float32)
+    # alphaVec = np.random.random(numTrainingData)
+    costFunctionDualProblem = np.zeros((numMaxIterations,),dtype=np.float32)
+    for ele1 in range(numMaxIterations):
+        costFunctionDualProblem[ele1] = (alphaVec @ oneVector) - (0.5 * (alphaVec[None,:] @ Y.T @ (X.T @ X) @ Y @ alphaVec[:,None]))
+        eta = 1e-4#1/((ele1+1)**2) # Learning rate/step size. Typically set as 1/t or 1/t**2
+        gradient = oneVector - (Y.T @ (X.T @ X) @ Y @ alphaVec) # Y.T @ (X.T @ X) @ Y can be moved outside the loop
+        alphaVec = alphaVec + eta*gradient
+        alphaVec[alphaVec<0] = 0 # box constraints. alpha should always be >=0
+        alphaVec[alphaVec>c] = c
+        # print('Min alpha val = {0:.5f}, Max alpha val = {1:.5f}'.format(np.amin(alphaVec),np.amax(alphaVec)))
+
+    wVec_svm = X @ Y @ alphaVec # This is the actual wVec but it doesnt need to be explicitly computed
+    suppVecIndMargin = np.where((alphaVec>0) & (alphaVec<c))[0]
+    print('Number of supporting vectors = {}'.format(len(suppVecIndMargin)))
+
+    """ Reference for the below method of bias calculation is given in:
+        1. https://www.adeveloperdiary.com/data-science/machine-learning/support-vector-machines-for-beginners-training-algorithms/#:~:text=Once%20training%20has%20been%20completed%2C%20we%20can%20calculate%20the%20bias%20b
+        2. https://stats.stackexchange.com/questions/362046/how-is-bias-term-calculated-in-svms#:~:text=Generally%20speaking%20the%20bias%20term%20is%20calculated"""
+    # bias = np.mean(trainingLabels[suppVecIndMargin] - (wVec_svm[0:-1][None,:] @ X[0:-1,suppVecIndMargin]))
+    # bias = np.mean(trainingLabels[suppVecIndMargin] - (wVec_svm @ X[:,suppVecIndMargin]))
+    # wVec_svm = np.hstack((wVec_svm,bias))
+    """ There's some issue in the bias computation. Need to resolve this"""
+
+    return wVec_svm, costFunctionDualProblem
+
+
+def svm_test(testingData,wVec_svm):
+
+    """ Testing phase"""
+    numTestingData = testingData.shape[0]
+    testingDataExt = np.hstack((testingData,np.ones((numTestingData,1)))) # Appending 1s to the test data as well.
+
+    wtx_test = testingDataExt @ wVec_svm
+    # wtx_test = testingData @ wVec_svm
+    estLabels = np.zeros((wtx_test.shape),dtype=np.int32)
+    estLabels[wtx_test>=0] = 1
+    estLabels[wtx_test<0] = -1
+
+    return estLabels
+
+
+def svm_accuracy(testingLabels, estLabels):
+
+    accuracy = np.mean(estLabels == testingLabels) * 100
+    print('\nAccuracy of clasification SVM = {0:.2f} % \n'.format(accuracy))
