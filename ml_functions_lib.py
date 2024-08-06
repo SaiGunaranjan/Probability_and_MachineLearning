@@ -136,7 +136,7 @@ Instead we find the gradient and update the W at each iteration. The derivation 
 The update equation for W is a linear combination of the data points each weighted by the difference of the true label
 and the estimated label (as given by the sigmoid function value for that data point). The update equation is as follows:
     W(k+1) = W(k) + alpha * summation (Xi (Yi-P(Y=1/Xi))), where P(Y=1/Xi) is the sigmoid function.
-From this equation, we can clearly see that the data points for which the true labels and the estimated labels (rom sigmoid function)
+From this equation, we can clearly see that the data points for which the true labels and the estimated labels (from sigmoid function)
 match, do not contribute to the W update. It is those points for which there is a mismatch between the true labels
 and estimated labels, that contribute to the W update. This is key observation which lays the foundation for
 more sophisticated algos like SVms, etc.

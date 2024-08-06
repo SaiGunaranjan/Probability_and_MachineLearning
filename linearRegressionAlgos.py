@@ -16,6 +16,7 @@ the linear least squares problem.
 
 1. Make epochs on x axis and not each data point. Get the MSE for each epoch.
 2. Plot the estimated line for each iteration to check how it is changing for each iteration/epoch
+3. Solve other variants of the least squares like ridge regression, regularized least squares, and also the LMS algorithm
 """
 
 
