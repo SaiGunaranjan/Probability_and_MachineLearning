@@ -246,6 +246,8 @@ class MLFFNeuralNetwork():
                 """ Update weights"""
                 self.update_weights(stepSize)
 
+            print('Epoch: {0}, loss function value: {1:.1f}'.format(ele1, costFunctionValue))
+
 
 
 
