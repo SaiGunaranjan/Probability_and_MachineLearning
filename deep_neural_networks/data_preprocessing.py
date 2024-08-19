@@ -13,6 +13,7 @@ import pandas as pd
 from sklearn import preprocessing
 from sklearn.preprocessing import StandardScaler
 import tensorflow as tf
+from multilayer_feedforward_nn import MLFFNeuralNetwork
 
 path = r'D:\git\Probability_and_MachineLearning\datasets'
 iris_data = pd.read_csv(path + '\\'+ 'iris.csv')
@@ -49,3 +50,16 @@ X_data = X_data.T # [NumFeatures, NumberOfFeatureVectors]
 
 Y_data = tf.keras.utils.to_categorical(Y_data,3)
 Y_data = Y_data.T # [dimOneHotVector, NumberOfFeatureVectors]
+
+
+
+""" List of number of nodes, acivation function pairs for each layer.
+1st element in architecture list is input, last element is output"""
+numInputNodes = X_data.shape[0]
+numOutputNodes = Y_data.shape[0]
+networkArchitecture = [(numInputNodes,'Identity'), (128,'ReLU'), (128, 'ReLU'), (numOutputNodes,'softmax')]
+mlffnn = MLFFNeuralNetwork(networkArchitecture)
+mlffnn.set_model_params(mode = 'online',costfn = 'categorical_cross_entropy',epochs=10)
+trainData = X_data
+trainDataLabels = Y_data
+mlffnn.train_nn(trainData,trainDataLabels)
