@@ -58,7 +58,8 @@ NN for classification problem
 7. How are Accuracy and loss curves computed on the validation dataset
 8. Make provision for batch mode and mini batch mode of training as well
 9. Clean up multiple calls of the is else for the activation and derivative of activation function. [Done]
-10. Compare my implementation of the forward pass with tensorflow/pytorch implementation
+10. Compare my implementation of the forward pass with tensorflow/pytorch implementation [Done]
+11. Check whether backward pass is correct.
 """
 
 import numpy as np
@@ -77,7 +78,9 @@ class MLFFNeuralNetwork():
             numNodesLayerL = self.networkArchitecture[ele][0]
             numNodesLayerLplus1 = self.networkArchitecture[ele+1][0]
             """ Initialize the weights matrix to 0s. Other initializations like picking from a normal distribution are also possible"""
-            weightMatrix = np.zeros((numNodesLayerLplus1,numNodesLayerL+1),dtype=np.float32) # +1 is for the bias term
+            # weightMatrix = np.zeros((numNodesLayerLplus1,numNodesLayerL+1),dtype=np.float32) # +1 is for the bias term
+            """ Initialize the weights matrix to random uniformly drawn values from 0 to 1. Other initializations like picking from a normal distribution are also possible"""
+            weightMatrix = np.random.rand(numNodesLayerLplus1,numNodesLayerL+1) # +1 is for the bias term
             self.weightMatrixList.append(weightMatrix)
 
     def set_model_params(self,mode = 'online',costfn = 'categorical_cross_entropy',epochs = 10):
@@ -149,6 +152,14 @@ class MLFFNeuralNetwork():
 
 
     def forwardpass(self, trainDataSample):
+        # Below is just a hack line to check if the forward pass is correctly codes given the correct weights
+        # self.weightMatrixList = [np.array([[-0.5,  1. ,  1. ],
+        #                                    [-1.5,  1. ,  1. ]]),
+        #                          np.array([-0.5,  1. ,  -2. ])]
+
+        # self.weightMatrixList = [np.array([[-5.73865995,  3.74919372,  3.75304957],
+        #                                     [ -2.43021955,  5.83523066, 5.85484645 ]]),
+        #                           np.array([-3.42122003,   -8.17383895 ,  7.56493559 ])]
         """ Forward pass"""
         layerLOutput = trainDataSample
         self.Ita = []
@@ -216,17 +227,18 @@ class MLFFNeuralNetwork():
             count -= 1
 
 
-    def train_nn(self,trainData,trainDataLabels):
+    def train_nn(self,trainData,trainDataLabels,stepsize=0.01):
         # trainDataLabels should also be a 1 hot vector representation
-        self.backpropagation(trainData,trainDataLabels)
+        self.backpropagation(trainData,trainDataLabels,stepsize=0.01)
 
 
-    def backpropagation(self,trainData,trainDataLabels):
+    def backpropagation(self,trainData,trainDataLabels,stepsize=0.01):
         """ Currently the back propagation is coded for online mode of weight update. Need to add for batch and mini batch mode"""
-        stepSize = 0.01#
+        stepSize = stepsize
         numTrainData = trainData.shape[1]
         # numFeatures = trainData.shape[0]
         arr = np.arange(numTrainData)
+        self.costFunctionVal = []
         for ele1 in np.arange(self.epochs):
             np.random.shuffle(arr) # Randomly shuffle the order of feeding the training data for each epoch
             for ele2 in arr:
@@ -239,7 +251,7 @@ class MLFFNeuralNetwork():
 
                 """ Cost function computation"""
                 costFunctionValue = self.compute_loss_function(trainDataLabel) # Keep appending the cost function value across data points and epochs
-
+                self.costFunctionVal.append(costFunctionValue)
                 """ Backward pass"""
                 self.backwardpass(trainDataLabel)
 
@@ -249,7 +261,13 @@ class MLFFNeuralNetwork():
             print('Epoch: {0}, loss function value: {1:.1f}'.format(ele1, costFunctionValue))
 
 
-
+    def predict_nn(self,testData,testDataLabels):
+        # This mehtod can be full vectorized over all the testdata by getting rid of the for loop and replace with matrix operations
+        numTestData = testData.shape[1]
+        self.testDataPredictedLabels = np.zeros(testDataLabels.shape)
+        for ele in range(numTestData):
+            self.forwardpass(testData[:,ele])
+            self.testDataPredictedLabels[:,ele] = self.predictedOutput
 
 
 
