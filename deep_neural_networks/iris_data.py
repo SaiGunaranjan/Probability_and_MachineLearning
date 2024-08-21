@@ -17,18 +17,18 @@ from multilayer_feedforward_nn import MLFFNeuralNetwork
 
 path = r'D:\git\Probability_and_MachineLearning\datasets'
 iris_data = pd.read_csv(path + '\\'+ 'iris.csv')
-print(iris_data.head(10))
+# print(iris_data.head(10))
 
 # Create a LabelEncoder object
 label_encoder = preprocessing.LabelEncoder()
 
 # Use the LabelEncoder object to transform the Species target variable
 iris_data['Species'] = label_encoder.fit_transform(iris_data['Species'])
-print(iris_data.head(10))
+# print(iris_data.head(10))
 
 np_iris = iris_data.to_numpy()
 np_iris = np_iris[:,1::]
-print(np_iris[:5])
+# print(np_iris[:5])
 
 # The input data will contain all rows and the first 4 columns
 X_data = np_iris[:,0:4]
@@ -44,7 +44,7 @@ scaler.fit(X_data)
 
 # Transform the input data
 X_data = scaler.transform(X_data)
-print(X_data[0:5,:])
+# print(X_data[0:5,:])
 X_data = X_data.T # [NumFeatures, NumberOfFeatureVectors]
 
 
@@ -62,4 +62,4 @@ mlffnn = MLFFNeuralNetwork(networkArchitecture)
 mlffnn.set_model_params(mode = 'online',costfn = 'categorical_cross_entropy',epochs=10)
 trainData = X_data
 trainDataLabels = Y_data
-mlffnn.train_nn(trainData,trainDataLabels)
+mlffnn.train_nn(trainData,trainDataLabels,stepsize=0.1)
