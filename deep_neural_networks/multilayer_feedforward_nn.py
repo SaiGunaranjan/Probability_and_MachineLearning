@@ -59,11 +59,14 @@ NN for classification problem
 8. Make provision for batch mode and mini batch mode of training as well
 9. Clean up multiple calls of the is else for the activation and derivative of activation function. [Done]
 10. Compare my implementation of the forward pass with tensorflow/pytorch implementation [Done]
-11. Check whether backward pass is correct.
+11. Check whether backward pass is correct.[Done]
+12. Check if the weights update step is correct.[Done. It is correct]
+13. Cost/loss function is not changing at all with epochs! [Done. I just had to increase the number of epochs from 10k to 100k for the cost function to converge and come close to 0]
+14. Remove multiple passing of the 'stepSize' parameter to several functions!
 """
 
 import numpy as np
-np.random.seed(0)
+# np.random.seed(0)
 
 class MLFFNeuralNetwork():
 
@@ -78,8 +81,9 @@ class MLFFNeuralNetwork():
             numNodesLayerL = self.networkArchitecture[ele][0]
             numNodesLayerLplus1 = self.networkArchitecture[ele+1][0]
             """ Initialize the weights matrix to 0s. Other initializations like picking from a normal distribution are also possible"""
+            # Initialization of weights with 0s doesnt seem to be convering for the stochastic gradient descent method!
             # weightMatrix = np.zeros((numNodesLayerLplus1,numNodesLayerL+1),dtype=np.float32) # +1 is for the bias term
-            """ Initialize the weights matrix to random uniformly drawn values from 0 to 1. Other initializations like picking from a normal distribution are also possible"""
+            """ Initialize the weights matrix to random uniformly drawn values from 0 to 1"""
             weightMatrix = np.random.rand(numNodesLayerLplus1,numNodesLayerL+1) # +1 is for the bias term
             self.weightMatrixList.append(weightMatrix)
 
@@ -153,13 +157,14 @@ class MLFFNeuralNetwork():
 
     def forwardpass(self, trainDataSample):
         # Below is just a hack line to check if the forward pass is correctly codes given the correct weights
+
         # self.weightMatrixList = [np.array([[-0.5,  1. ,  1. ],
         #                                    [-1.5,  1. ,  1. ]]),
-        #                          np.array([-0.5,  1. ,  -2. ])]
+        #                          np.array([[-0.5,  1. ,  -2. ]])]
 
-        # self.weightMatrixList = [np.array([[-5.73865995,  3.74919372,  3.75304957],
-        #                                     [ -2.43021955,  5.83523066, 5.85484645 ]]),
-        #                           np.array([-3.42122003,   -8.17383895 ,  7.56493559 ])]
+        # self.weightMatrixList = [np.array([[-5.6836409,  3.70978057,  3.71140367],
+        #                                     [ -2.42011388,  5.78819908, 5.79615577 ]]),
+        #                           np.array([[-3.37817248,   -8.14903896 ,  7.50503069 ]])]
         """ Forward pass"""
         layerLOutput = trainDataSample
         self.Ita = []
