@@ -62,11 +62,11 @@ NN for classification problem
 11. Check whether backward pass is correct.[Done]
 12. Check if the weights update step is correct.[Done. It is correct]
 13. Cost/loss function is not changing at all with epochs! [Done. I just had to increase the number of epochs from 10k to 100k for the cost function to converge and come close to 0]
-14. Remove multiple passing of the 'stepSize' parameter to several functions!
+14. Remove multiple passing of the 'stepSize' parameter to several functions! [Done]
 """
 
 import numpy as np
-# np.random.seed(0)
+np.random.seed(0)
 
 class MLFFNeuralNetwork():
 
@@ -87,10 +87,12 @@ class MLFFNeuralNetwork():
             weightMatrix = np.random.rand(numNodesLayerLplus1,numNodesLayerL+1) # +1 is for the bias term
             self.weightMatrixList.append(weightMatrix)
 
-    def set_model_params(self,mode = 'online',costfn = 'categorical_cross_entropy',epochs = 10):
+    def set_model_params(self,mode = 'online',costfn = 'categorical_cross_entropy',epochs = 100000, stepsize = 0.1):
         self.mode = mode
         self.costfn = costfn
         self.epochs = epochs
+        self.stepsize = stepsize
+
 
 
     def sigmoid(self,z):
@@ -220,7 +222,7 @@ class MLFFNeuralNetwork():
 
 
 
-    def update_weights(self, stepSize):
+    def update_weights(self):
         # Errors/delta obtained for all the layers from 2 to L
         # Compute gradient wrt Wl_ij
         # dJ/dWl_ij = deltal+1_j * yi_l
@@ -228,18 +230,18 @@ class MLFFNeuralNetwork():
         count = -1
         for ele4 in range(self.numLayers-1):
             gradientCostFnwrtWeights = self.errorEachLayer[count][:,None] @ self.outputEachlayer[ele4][None,:]
-            self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - stepSize*gradientCostFnwrtWeights
+            self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights
             count -= 1
 
 
-    def train_nn(self,trainData,trainDataLabels,stepsize=0.01):
-        # trainDataLabels should also be a 1 hot vector representation
-        self.backpropagation(trainData,trainDataLabels,stepsize=0.01)
+    def train_nn(self,trainData,trainDataLabels):
+        # trainDataLabels should also be a 1 hot vector representation for classification task
+        self.backpropagation(trainData,trainDataLabels)
 
 
-    def backpropagation(self,trainData,trainDataLabels,stepsize=0.01):
+    def backpropagation(self,trainData,trainDataLabels):
         """ Currently the back propagation is coded for online mode of weight update. Need to add for batch and mini batch mode"""
-        stepSize = stepsize
+
         numTrainData = trainData.shape[1]
         # numFeatures = trainData.shape[0]
         arr = np.arange(numTrainData)
@@ -261,7 +263,7 @@ class MLFFNeuralNetwork():
                 self.backwardpass(trainDataLabel)
 
                 """ Update weights"""
-                self.update_weights(stepSize)
+                self.update_weights()
 
             print('Epoch: {0}, loss function value: {1:.1f}'.format(ele1, costFunctionValue))
 

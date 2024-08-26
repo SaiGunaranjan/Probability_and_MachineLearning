@@ -59,7 +59,7 @@ numInputNodes = X_data.shape[0]
 numOutputNodes = Y_data.shape[0]
 networkArchitecture = [(numInputNodes,'Identity'), (128,'ReLU'), (128, 'ReLU'), (numOutputNodes,'softmax')]
 mlffnn = MLFFNeuralNetwork(networkArchitecture)
-mlffnn.set_model_params(mode = 'online',costfn = 'categorical_cross_entropy',epochs=10)
+mlffnn.set_model_params(mode = 'online',costfn = 'categorical_cross_entropy',epochs=100000, stepsize=0.1)
 trainData = X_data
 trainDataLabels = Y_data
-mlffnn.train_nn(trainData,trainDataLabels,stepsize=0.1)
+mlffnn.train_nn(trainData,trainDataLabels)
