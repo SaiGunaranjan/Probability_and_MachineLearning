@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 """ NN for classification"""
+
 X_data = np.array([[0,0],[0,1],[1,0],[1,1]]).T
 Y_data = np.array([[1,0],[0,1],[0,1],[1,0]]).T # One hot vector
 
@@ -19,7 +20,8 @@ numInputNodes = X_data.shape[0]
 numOutputNodes = Y_data.shape[0]
 networkArchitecture = [(numInputNodes,'Identity'), (2, 'sigmoid'), (2,'softmax')]
 mlffnn = MLFFNeuralNetwork(networkArchitecture)
-mlffnn.set_model_params(mode = 'online',costfn = 'categorical_cross_entropy',epochs=10000, stepsize=0.1)
+# mlffnn.set_model_params(mode = 'online',costfn = 'categorical_cross_entropy',epochs=10000, stepsize=0.1)
+mlffnn.set_model_params(mode = 'batch',costfn = 'categorical_cross_entropy',epochs=10000, stepsize=0.1)
 trainData = X_data
 trainDataLabels = Y_data
 mlffnn.train_nn(trainData,trainDataLabels)
@@ -33,34 +35,41 @@ numTrainingSamples = trainData.shape[1]
 
 plt.figure(1,figsize=(20,10),dpi=200)
 plt.title('Cost / loss function')
-plt.plot(mlffnn.costFunctionVal[0::numTrainingSamples])
+# plt.plot(mlffnn.costFunctionVal[0::numTrainingSamples])
+plt.plot(mlffnn.costFunctionVal)
 plt.xlabel('Epochs')
 plt.grid(True)
+
+
+
 
 """ NN for regression"""
-X_data = np.array([[0,0],[0,1],[1,0],[1,1]]).T
-Y_data = np.array([0,1,1,0])[None,:]
 
-""" List of number of nodes, acivation function pairs for each layer.
-1st element in architecture list is input, last element is output"""
-numInputNodes = X_data.shape[0]
-numOutputNodes = Y_data.shape[0]
-networkArchitecture = [(numInputNodes,'Identity'), (2, 'sigmoid'), (1,'sigmoid')]
-mlffnn = MLFFNeuralNetwork(networkArchitecture)
-mlffnn.set_model_params(mode = 'online',costfn = 'squared_error',epochs=100000,stepsize=0.1)
-trainData = X_data
-trainDataLabels = Y_data
-mlffnn.train_nn(trainData,trainDataLabels)
-mlffnn.predict_nn(trainData,trainDataLabels)
-mlffnn.testDataPredictedLabels[mlffnn.testDataPredictedLabels>=0.5] = 1
-mlffnn.testDataPredictedLabels[mlffnn.testDataPredictedLabels<0.5] = 0
-print('\nActual labels', trainDataLabels[0,:])
-print('\n Predicted labels', mlffnn.testDataPredictedLabels[0,:])
+# X_data = np.array([[0,0],[0,1],[1,0],[1,1]]).T
+# Y_data = np.array([0,1,1,0])[None,:]
 
-numTrainingSamples = trainData.shape[1]
+# """ List of number of nodes, acivation function pairs for each layer.
+# 1st element in architecture list is input, last element is output"""
+# numInputNodes = X_data.shape[0]
+# numOutputNodes = Y_data.shape[0]
+# networkArchitecture = [(numInputNodes,'Identity'), (2, 'sigmoid'), (1,'sigmoid')]
+# mlffnn = MLFFNeuralNetwork(networkArchitecture)
+# # mlffnn.set_model_params(mode = 'online',costfn = 'squared_error',epochs=100000,stepsize=0.1)
+# mlffnn.set_model_params(mode = 'batch',costfn = 'squared_error',epochs=10000,stepsize=0.1)
+# trainData = X_data
+# trainDataLabels = Y_data
+# mlffnn.train_nn(trainData,trainDataLabels)
+# mlffnn.predict_nn(trainData,trainDataLabels)
+# mlffnn.testDataPredictedLabels[mlffnn.testDataPredictedLabels>=0.5] = 1
+# mlffnn.testDataPredictedLabels[mlffnn.testDataPredictedLabels<0.5] = 0
+# print('\nActual labels', trainDataLabels[0,:])
+# print('\n Predicted labels', mlffnn.testDataPredictedLabels[0,:])
 
-plt.figure(2,figsize=(20,10),dpi=200)
-plt.title('Cost / loss function')
-plt.plot(mlffnn.costFunctionVal[0::numTrainingSamples])
-plt.xlabel('Epochs')
-plt.grid(True)
+# numTrainingSamples = trainData.shape[1]
+
+# plt.figure(2,figsize=(20,10),dpi=200)
+# plt.title('Cost / loss function')
+# # plt.plot(mlffnn.costFunctionVal[0::numTrainingSamples])
+# plt.plot(mlffnn.costFunctionVal)
+# plt.xlabel('Epochs')
+# plt.grid(True)
