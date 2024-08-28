@@ -18,6 +18,7 @@ I have also derived based on the above link. The derivation is availabe in my On
 
 
 Multi class classification using softmax and categorical cross entropy.
+Regression using sigmoid/tanh and squared error loss function
 
 Updates:
 
@@ -39,6 +40,13 @@ Following are the features
 
 4. Both forward pass and backward pass can now can cater to any number of user defined layers in the network through a for loop
 
+28/08/2024
+5. Brought up both the online/stochastic as well as batch mode of gradient descent.
+
+6. Online mode of gradient descent requires smaller step sizes and more number of epochs since weights get updated with each data point and each epoch
+
+7. Batch mode of gradient descent does not require such small step sizes and fewer number of epochs since weights get updated less frequenctly (once per epoch)
+
 
 
 Reference:
@@ -53,10 +61,10 @@ NN for classification problem
 2. Normalize input features to zero mean and unit variance, so that no one features totally dominates the output.
 3. Add momentum term to the gradient descent algo
 4. Variable learning rate/step size i.e large step size initially and smaller step size as we progress over more iterations
-5. Batch vs online vs mini batch mode of gradient descent
+5. Batch vs online vs mini batch mode of gradient descent. [Done. Mini batch mode pening]
 6. Cross validation with validation dataset (k fold cross validation)
 7. How are Accuracy and loss curves computed on the validation dataset
-8. Make provision for batch mode and mini batch mode of training as well
+8. Make provision for batch mode and mini batch mode of training as well.[Done. Mini batch mode pening]
 9. Clean up multiple calls of the is else for the activation and derivative of activation function. [Done]
 10. Compare my implementation of the forward pass with tensorflow/pytorch implementation [Done]
 11. Check whether backward pass is correct.[Done]
@@ -87,8 +95,8 @@ class MLFFNeuralNetwork():
             weightMatrix = np.random.rand(numNodesLayerLplus1,numNodesLayerL+1) # +1 is for the bias term
             self.weightMatrixList.append(weightMatrix)
 
-    def set_model_params(self,mode = 'online',costfn = 'categorical_cross_entropy',epochs = 100000, stepsize = 0.1):
-        self.mode = mode
+    def set_model_params(self,modeGradDescent = 'online',costfn = 'categorical_cross_entropy',epochs = 100000, stepsize = 0.1):
+        self.modeGradDescent = modeGradDescent
         self.costfn = costfn
         self.epochs = epochs
         self.stepsize = stepsize
@@ -121,7 +129,7 @@ class MLFFNeuralNetwork():
         return 1 - (self.tanh(z)**2)
 
     def ReLU_derivative(self,z):
-        return 1*(z>0) # Returns 0 for negative values, 1 for posotive values
+        return 1*(z>0) # Returns 0 for negative values, 1 for positive values
 
     def activation_function(self, itaLayerL, activationFn):
         if (activationFn == 'sigmoid'):
@@ -152,7 +160,6 @@ class MLFFNeuralNetwork():
             costFunction = -np.sum((trainDataLabel*np.log2(self.predictedOutput))) # -Sum(di*log(yi)), where di is the actual output and yi is the predicted output
         elif (self.costfn == 'squared_error'):
             costFunction = 0.5*np.sum((self.predictedOutput - trainDataLabel)**2) # 1/2 Sum((yi - di)**2), where di is the actual output and yi is the predicted output
-        # Compute for other cost functions like squared error, etc
 
         return costFunction
 
@@ -176,7 +183,7 @@ class MLFFNeuralNetwork():
         for ele3 in range(self.numLayers):
             numNodesLayerL = self.networkArchitecture[ele3][0]
             if (ele3 == 0):
-                # Input layer
+                """Input layer"""
                 layerLminus1Output = np.ones((numNodesLayerL + 1, numTrainingSamples),dtype=np.float32) # +1 is to account for the bias term
                 layerLminus1Output[1::,:] = layerLOutput
             else:
@@ -195,14 +202,14 @@ class MLFFNeuralNetwork():
 
 
     def backwardpass(self, trainDataLabel):
-        # This backward pass computation is for 'categorical_cross_entropy', 'squared error' loss functions and online mode. Need to add the computation of backward pass for other modes like batch and mini batch
-        # trainDataLabels should also be a 1 hot vector representation
+        # This backward pass computation is for 'categorical_cross_entropy', 'squared error' loss functions and online and batch mode. Need to add the computation of backward pass for mini batch
 
-        numTrainingSamples = trainDataLabel.shape[1]
+        # numTrainingSamples = trainDataLabel.shape[1]
         self.errorEachLayer = []
         # ele4 loop goes from layer L-1(output) to layer 0 input
         for ele4 in range(self.numLayers-1,0,-1):
             if (ele4 == self.numLayers-1):
+                """ Final output layer"""
                 if (self.costfn == 'categorical_cross_entropy'):
                     errorLayerL = self.predictedOutput - trainDataLabel # (y - d) For softmax activation function with categorical cross entropy cost function. Used for classificcation tasks.
                 elif (self.costfn == 'squared_error'):
@@ -241,57 +248,67 @@ class MLFFNeuralNetwork():
         self.backpropagation(trainData,trainDataLabels)
 
 
+    def stochastic_gradient_descent(self,trainData,trainDataLabels, arr):
+        """ arr is the randomly shuffled order of sampling the training data"""
+        for ele2 in arr:
+            trainDataSample = trainData[:,ele2][:,None]
+            trainDataLabel = trainDataLabels[:,ele2][:,None]
+
+            """ Forward pass"""
+            self.forwardpass(trainDataSample)
+
+            """ Cost function computation"""
+            self.costFunctionValue = self.compute_loss_function(trainDataLabel) # Keep appending the cost function value across data points and epochs
+            self.costFunctionArray.append(self.costFunctionValue)
+            """ Backward pass"""
+            self.backwardpass(trainDataLabel)
+
+            """ Update weights"""
+            self.update_weights()
+
+
+    def batch_gradient_descent(self,trainData,trainDataLabels):
+
+        trainDataSample = trainData
+        trainDataLabel = trainDataLabels
+
+        """ Forward pass"""
+        self.forwardpass(trainDataSample)
+
+        """ Cost function computation"""
+        self.costFunctionValue = self.compute_loss_function(trainDataLabel) # Keep appending the cost function value across epochs
+        self.costFunctionArray.append(self.costFunctionValue)
+
+        """ Backward pass"""
+        self.backwardpass(trainDataLabel)
+
+        """ Update weights"""
+        self.update_weights()
+
+
+
     def backpropagation(self,trainData,trainDataLabels):
-        """ Currently the back propagation is coded for online mode of weight update. Need to add for batch and mini batch mode"""
+        """ Currently the back propagation is coded for online and batch mode of weight update. Need to add for mini batch mode as well"""
 
         numTrainData = trainData.shape[1]
         # numFeatures = trainData.shape[0]
         arr = np.arange(numTrainData)
-        self.costFunctionVal = []
+        self.costFunctionArray = []
         for ele1 in np.arange(self.epochs):
 
-            if self.mode == 'online':
-                np.random.shuffle(arr) # Randomly shuffle the order of feeding the training data for each epoch
-                for ele2 in arr:
+            if self.modeGradDescent == 'online':
+                """Randomly shuffle the order of feeding the training data for each epoch"""
+                np.random.shuffle(arr)
+                self.stochastic_gradient_descent(trainData,trainDataLabels,arr)
 
-                    trainDataSample = trainData[:,ele2][:,None] # make it columsn vector to make ti compatible with batch gradient descent as well
-                    trainDataLabel = trainDataLabels[:,ele2][:,None]
+            elif self.modeGradDescent == 'batch':
+                self.batch_gradient_descent(trainData,trainDataLabels)
 
-                    """ Forward pass"""
-                    self.forwardpass(trainDataSample)
-
-                    """ Cost function computation"""
-                    costFunctionValue = self.compute_loss_function(trainDataLabel) # Keep appending the cost function value across data points and epochs
-                    self.costFunctionVal.append(costFunctionValue)
-                    """ Backward pass"""
-                    self.backwardpass(trainDataLabel)
-
-                    """ Update weights"""
-                    self.update_weights()
-
-            elif self.mode == 'batch':
-                trainDataSample = trainData
-                trainDataLabel = trainDataLabels
-
-                """ Forward pass"""
-                self.forwardpass(trainDataSample)
-
-                """ Cost function computation"""
-                costFunctionValue = self.compute_loss_function(trainDataLabel) # Keep appending the cost function value across epochs
-                self.costFunctionVal.append(costFunctionValue)
-
-                """ Backward pass"""
-                self.backwardpass(trainDataLabel)
-
-                """ Update weights"""
-                self.update_weights()
-
-
-            print('Epoch: {0}/{1}, loss function value: {2:.1f}'.format(ele1+1, self.epochs, costFunctionValue))
+            print('Epoch: {0}/{1}, loss function value: {2:.1f}'.format(ele1+1, self.epochs, self.costFunctionValue))
 
 
     def predict_nn(self,testData,testDataLabels):
-        # This mehtod can be full vectorized over all the testdata by getting rid of the for loop and replace with matrix operations
+        # This method can be full vectorized over all the testdata by getting rid of the for loop and replace with matrix operations
         numTestData = testData.shape[1]
         self.testDataPredictedLabels = np.zeros(testDataLabels.shape)
         for ele in range(numTestData):
