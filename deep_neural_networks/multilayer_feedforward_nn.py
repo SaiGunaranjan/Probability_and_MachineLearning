@@ -110,7 +110,7 @@ class MLFFNeuralNetwork():
     def softmax(self,z):
         """ z has to be a vector"""
         ePowz = np.exp(z)
-        return ePowz/np.sum(ePowz)
+        return ePowz/np.sum(ePowz,axis=0)[None,:]
 
 
 
@@ -169,6 +169,7 @@ class MLFFNeuralNetwork():
         #                           np.array([[-3.37817248,   -8.14903896 ,  7.50503069 ]])]
         """ Forward pass"""
         layerLOutput = trainDataSample
+        numTrainingSamples = trainDataSample.shape[1]
         self.Ita = []
         self.outputEachlayer = []
         # ele3 is looping over the layers
@@ -176,16 +177,16 @@ class MLFFNeuralNetwork():
             numNodesLayerL = self.networkArchitecture[ele3][0]
             if (ele3 == 0):
                 # Input layer
-                layerLminus1Output = np.ones((numNodesLayerL + 1),dtype=np.float32) # +1 is to account for the bias term
-                layerLminus1Output[1::] = layerLOutput
+                layerLminus1Output = np.ones((numNodesLayerL + 1, numTrainingSamples),dtype=np.float32) # +1 is to account for the bias term
+                layerLminus1Output[1::,:] = layerLOutput
             else:
                 weightMatrixLayerLminus1toL = self.weightMatrixList[ele3-1]
                 itaLayerL = weightMatrixLayerLminus1toL @ layerLminus1Output
                 activationFn = self.networkArchitecture[ele3][1] # Activation function name
                 layerLOutput = self.activation_function(itaLayerL,activationFn) # gives output of the activation function for the ita input
 
-                layerLminus1Output = np.ones((numNodesLayerL + 1),dtype=np.float32) # +1 is to account for the bias term
-                layerLminus1Output[1::] = layerLOutput
+                layerLminus1Output = np.ones((numNodesLayerL + 1, numTrainingSamples),dtype=np.float32) # +1 is to account for the bias term
+                layerLminus1Output[1::,:] = layerLOutput
 
                 self.Ita.append(itaLayerL) # ita is not stored for input layer. It is stored for all other layers.
             self.outputEachlayer.append(layerLminus1Output) # Output for each layer
@@ -197,6 +198,7 @@ class MLFFNeuralNetwork():
         # This backward pass computation is for 'categorical_cross_entropy', 'squared error' loss functions and online mode. Need to add the computation of backward pass for other modes like batch and mini batch
         # trainDataLabels should also be a 1 hot vector representation
 
+        numTrainingSamples = trainDataLabel.shape[1]
         self.errorEachLayer = []
         # ele4 loop goes from layer L-1(output) to layer 0 input
         for ele4 in range(self.numLayers-1,0,-1):
@@ -229,7 +231,7 @@ class MLFFNeuralNetwork():
         # gradient # dJ/dwij for all i,j
         count = -1
         for ele4 in range(self.numLayers-1):
-            gradientCostFnwrtWeights = self.errorEachLayer[count][:,None] @ self.outputEachlayer[ele4][None,:]
+            gradientCostFnwrtWeights = self.errorEachLayer[count] @ self.outputEachlayer[ele4].T
             self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights
             count -= 1
 
@@ -247,25 +249,45 @@ class MLFFNeuralNetwork():
         arr = np.arange(numTrainData)
         self.costFunctionVal = []
         for ele1 in np.arange(self.epochs):
-            np.random.shuffle(arr) # Randomly shuffle the order of feeding the training data for each epoch
-            for ele2 in arr:
 
-                trainDataSample = trainData[:,ele2]
-                trainDataLabel = trainDataLabels[:,ele2]
+            if self.mode == 'online':
+                np.random.shuffle(arr) # Randomly shuffle the order of feeding the training data for each epoch
+                for ele2 in arr:
+
+                    trainDataSample = trainData[:,ele2][:,None] # make it columsn vector to make ti compatible with batch gradient descent as well
+                    trainDataLabel = trainDataLabels[:,ele2][:,None]
+
+                    """ Forward pass"""
+                    self.forwardpass(trainDataSample)
+
+                    """ Cost function computation"""
+                    costFunctionValue = self.compute_loss_function(trainDataLabel) # Keep appending the cost function value across data points and epochs
+                    self.costFunctionVal.append(costFunctionValue)
+                    """ Backward pass"""
+                    self.backwardpass(trainDataLabel)
+
+                    """ Update weights"""
+                    self.update_weights()
+
+            elif self.mode == 'batch':
+                trainDataSample = trainData
+                trainDataLabel = trainDataLabels
 
                 """ Forward pass"""
                 self.forwardpass(trainDataSample)
 
                 """ Cost function computation"""
-                costFunctionValue = self.compute_loss_function(trainDataLabel) # Keep appending the cost function value across data points and epochs
+                costFunctionValue = self.compute_loss_function(trainDataLabel) # Keep appending the cost function value across epochs
                 self.costFunctionVal.append(costFunctionValue)
+
                 """ Backward pass"""
                 self.backwardpass(trainDataLabel)
 
                 """ Update weights"""
                 self.update_weights()
 
-            print('Epoch: {0}, loss function value: {1:.1f}'.format(ele1, costFunctionValue))
+
+            print('Epoch: {0}/{1}, loss function value: {2:.1f}'.format(ele1+1, self.epochs, costFunctionValue))
 
 
     def predict_nn(self,testData,testDataLabels):
@@ -273,8 +295,8 @@ class MLFFNeuralNetwork():
         numTestData = testData.shape[1]
         self.testDataPredictedLabels = np.zeros(testDataLabels.shape)
         for ele in range(numTestData):
-            self.forwardpass(testData[:,ele])
-            self.testDataPredictedLabels[:,ele] = self.predictedOutput
+            self.forwardpass(testData[:,ele][:,None])
+            self.testDataPredictedLabels[:,ele] = self.predictedOutput.squeeze()
 
 
 
