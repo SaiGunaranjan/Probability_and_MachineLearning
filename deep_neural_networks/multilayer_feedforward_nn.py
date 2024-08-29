@@ -308,25 +308,12 @@ class MLFFNeuralNetwork():
 
 
     def predict_nn(self,testData,testDataLabels):
-        # This method can be full vectorized over all the testdata by getting rid of the for loop and replace with matrix operations
-        numTestData = testData.shape[1]
+         # testData should be of shape numFeatures x numTestcases
         self.testDataPredictedLabels = np.zeros(testDataLabels.shape)
-        for ele in range(numTestData):
-            self.forwardpass(testData[:,ele][:,None])
-            self.testDataPredictedLabels[:,ele] = self.predictedOutput.squeeze()
+        self.forwardpass(testData)
+        self.testDataPredictedLabels = self.predictedOutput
 
 
-
-
-
-# """ List of number of nodes, acivation function pairs for each layer.
-# 1st element in architecture list is input, last element is output"""
-# networkArchitecture = [(5,'Identity'), (128,'ReLU'), (128, 'ReLU'), (3,'softmax')]
-# mlffnn = MLFFNeuralNetwork(networkArchitecture)
-# mlffnn.set_model_params(mode = 'online',costfn = 'categorical_cross_entropy',epochs=10)
-# trainData = np.array([[1,2],[3,4],[5,6],[7,8],[9,10]])
-# trainDataLabels = np.array([[1,0],[0,1],[0,0]])
-# mlffnn.train_nn(trainData,trainDataLabels)
 
 
 
