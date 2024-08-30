@@ -47,6 +47,21 @@ Following are the features
 
 7. Batch mode of gradient descent does not require such small step sizes and fewer number of epochs since weights get updated less frequenctly (once per epoch)
 
+30/08/2024
+8. Numerically stable version of softmax function to prevent overflows and underflows while evaluating e^x , where x is either very large or very small.
+https://medium.com/@ravish1729/analysis-of-softmax-function-ad058d6a564d
+
+9. Successfully verified and tested the iris data set
+
+10. Plotting both the training loss and validation loss at each epoch. A network has truly learnt
+if both the training loss and the validation loss keep decreasing with epochs. If only the training
+loss decreases but the validation loss increases with epochs, then the model/network has not truly
+generalized on unseen data and it has probably over fit on the training data.
+
+11. While feeding training data to a NN, all the classes/labels of the data should be in similar proportion.
+If the training data is skewed towards a few classes, then the model will not learn properly and will
+perfrom poorly on data from other classes which have less representation in training.
+
 
 
 Reference:
@@ -57,7 +72,7 @@ https://medium.com/@ja_adimi/neural-networks-101-hands-on-practice-25df515e13b0
 """
 NN for classification problem
 
-1. Inititalize all the weights. How to initialize W matrices of each layer
+1. Inititalize all the weights. How to initialize W matrices of each layer[Done. Random sampling from a uniform distribution]
 2. Normalize input features to zero mean and unit variance, so that no one features totally dominates the output.
 3. Add momentum term to the gradient descent algo
 4. Variable learning rate/step size i.e large step size initially and smaller step size as we progress over more iterations
@@ -117,6 +132,7 @@ class MLFFNeuralNetwork():
 
     def softmax(self,z):
         """ z has to be a vector"""
+        z = z - np.amax(z,axis=0)[None,:] # To avoid overflows while evaluating np.exp(z). Refer point 8 above
         ePowz = np.exp(z)
         return ePowz/np.sum(ePowz,axis=0)[None,:]
 
@@ -157,7 +173,8 @@ class MLFFNeuralNetwork():
     def compute_loss_function(self,trainDataLabel):
 
         if (self.costfn == 'categorical_cross_entropy'):
-            costFunction = -np.sum((trainDataLabel*np.log2(self.predictedOutput))) # -Sum(di*log(yi)), where di is the actual output and yi is the predicted output
+            mask = self.predictedOutput !=0 # Avoid 0 values in log2 evaluation
+            costFunction = -np.sum((trainDataLabel[mask]*np.log2(self.predictedOutput[mask]))) # -Sum(di*log(yi)), where di is the actual output and yi is the predicted output
         elif (self.costfn == 'squared_error'):
             costFunction = 0.5*np.sum((self.predictedOutput - trainDataLabel)**2) # 1/2 Sum((yi - di)**2), where di is the actual output and yi is the predicted output
 
@@ -243,16 +260,25 @@ class MLFFNeuralNetwork():
             count -= 1
 
 
-    def train_nn(self,trainData,trainDataLabels):
+    def train_nn(self,trainData,trainDataLabels,split = 1):
         # trainDataLabels should also be a 1 hot vector representation for classification task
-        self.backpropagation(trainData,trainDataLabels)
+
+        """ Split data into training and validation data. Use validation data to test model on unseeen data while training"""
+        numDataPoints = trainData.shape[1]
+        numTrainingData = int(np.round(split*numDataPoints))
+        self.trainData = trainData[:,0:numTrainingData]
+        self.trainDataLabels = trainDataLabels[:,0:numTrainingData]
+        self.validationData = trainData[:,numTrainingData::]
+        self.validationDataLabels = trainDataLabels[:,numTrainingData::]
+
+        self.backpropagation()
 
 
-    def stochastic_gradient_descent(self,trainData,trainDataLabels, arr):
+    def stochastic_gradient_descent(self, arr):
         """ arr is the randomly shuffled order of sampling the training data"""
         for ele2 in arr:
-            trainDataSample = trainData[:,ele2][:,None]
-            trainDataLabel = trainDataLabels[:,ele2][:,None]
+            trainDataSample = self.trainData[:,ele2][:,None]
+            trainDataLabel = self.trainDataLabels[:,ele2][:,None]
 
             """ Forward pass"""
             self.forwardpass(trainDataSample)
@@ -267,10 +293,10 @@ class MLFFNeuralNetwork():
             self.update_weights()
 
 
-    def batch_gradient_descent(self,trainData,trainDataLabels):
+    def batch_gradient_descent(self):
 
-        trainDataSample = trainData
-        trainDataLabel = trainDataLabels
+        trainDataSample = self.trainData
+        trainDataLabel = self.trainDataLabels
 
         """ Forward pass"""
         self.forwardpass(trainDataSample)
@@ -287,29 +313,46 @@ class MLFFNeuralNetwork():
 
 
 
-    def backpropagation(self,trainData,trainDataLabels):
+    def backpropagation(self):
         """ Currently the back propagation is coded for online and batch mode of weight update. Need to add for mini batch mode as well"""
 
-        numTrainData = trainData.shape[1]
+        numTrainData = self.trainData.shape[1]
         # numFeatures = trainData.shape[0]
         arr = np.arange(numTrainData)
         self.costFunctionArray = []
+        self.validationLossArray = []
         for ele1 in np.arange(self.epochs):
 
             if self.modeGradDescent == 'online':
                 """Randomly shuffle the order of feeding the training data for each epoch"""
                 np.random.shuffle(arr)
-                self.stochastic_gradient_descent(trainData,trainDataLabels,arr)
+                self.stochastic_gradient_descent(arr)
 
             elif self.modeGradDescent == 'batch':
-                self.batch_gradient_descent(trainData,trainDataLabels)
+                self.batch_gradient_descent()
 
-            print('Epoch: {0}/{1}, loss function value: {2:.1f}'.format(ele1+1, self.epochs, self.costFunctionValue))
+            if (self.validationData.shape[1] != 0): # There is some validation data to test model
+                self.model_validation()
 
 
-    def predict_nn(self,testData,testDataLabels):
+            if (self.validationData.shape[1] != 0): # There is some validation data to test model
+                print('Epoch: {0}/{1}, Training loss: {2:.1f}, Validation loss: {3:.1f}'.format(ele1+1, self.epochs, self.costFunctionValue, self.validationLoss))
+            else: # There is no validation data to test model
+                print('Epoch: {0}/{1}, Training loss: {2:.1f}'.format(ele1+1, self.epochs, self.costFunctionValue))
+
+    def model_validation(self):
+
+        self.predict_nn(self.validationData)
+        """ Validation loss"""
+        self.validationLoss = self.compute_loss_function(self.validationDataLabels) # Keep appending the cost function value across epochs
+        self.validationLossArray.append(self.validationLoss)
+
+
+
+
+    def predict_nn(self,testData):
          # testData should be of shape numFeatures x numTestcases
-        self.testDataPredictedLabels = np.zeros(testDataLabels.shape)
+
         self.forwardpass(testData)
         self.testDataPredictedLabels = self.predictedOutput
 
