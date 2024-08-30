@@ -82,10 +82,7 @@ mlffnn.train_nn(trainData,trainDataLabels,split=0.8)
 testData = X_data[:,numTrainingData::]
 testDataLabels = Y_data[:,numTrainingData::]
 mlffnn.predict_nn(testData)
-predClasses = np.argmax(mlffnn.testDataPredictedLabels,axis=0)
-actualClasses = np.argmax(testDataLabels,axis=0)
-accuracy = np.mean(predClasses == actualClasses) * 100
-print('\nAccuracy of NN = {0:.2f} % \n'.format(accuracy))
+mlffnn.get_accuracy(testDataLabels, mlffnn.testDataPredictedLabels, printAcc=True)
 
 plt.figure(1,figsize=(20,10),dpi=200)
 plt.subplot(1,2,1)
