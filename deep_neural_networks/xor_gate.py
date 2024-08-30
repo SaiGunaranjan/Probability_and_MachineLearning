@@ -41,7 +41,7 @@ if modeClassification == True:
     trainData = X_data
     trainDataLabels = Y_data
     mlffnn.train_nn(trainData,trainDataLabels)
-    mlffnn.predict_nn(trainData,trainDataLabels)
+    mlffnn.predict_nn(trainData)
     mlffnn.testDataPredictedLabels[mlffnn.testDataPredictedLabels>=0.5] = 1
     mlffnn.testDataPredictedLabels[mlffnn.testDataPredictedLabels<0.5] = 0
     print('\nActual labels', trainDataLabels[1,:])
@@ -75,7 +75,7 @@ else:
     trainData = X_data
     trainDataLabels = Y_data
     mlffnn.train_nn(trainData,trainDataLabels)
-    mlffnn.predict_nn(trainData,trainDataLabels)
+    mlffnn.predict_nn(trainData)
     mlffnn.testDataPredictedLabels[mlffnn.testDataPredictedLabels>=0.5] = 1
     mlffnn.testDataPredictedLabels[mlffnn.testDataPredictedLabels<0.5] = 0
     print('\nActual labels', trainDataLabels[0,:])
