@@ -248,6 +248,21 @@ class MLFFNeuralNetwork():
 
 
 
+    def compute_forward_backward_pass(self, trainDataSample, trainDataLabel):
+
+        """ Forward pass"""
+        self.forwardpass(trainDataSample)
+
+        """ Cost function computation"""
+        self.costFunctionValue = self.compute_loss_function(trainDataLabel) # Keep appending the cost function value across data points and epochs
+        self.costFunctionArray.append(self.costFunctionValue)
+        """ Backward pass"""
+        self.backwardpass(trainDataLabel)
+
+        """ Update weights"""
+        self.update_weights()
+
+
     def update_weights(self):
         # Errors/delta obtained for all the layers from 2 to L
         # Compute gradient wrt Wl_ij
@@ -280,17 +295,11 @@ class MLFFNeuralNetwork():
             trainDataSample = self.trainData[:,ele2][:,None]
             trainDataLabel = self.trainDataLabels[:,ele2][:,None]
 
-            """ Forward pass"""
-            self.forwardpass(trainDataSample)
+            self.compute_forward_backward_pass(trainDataSample,trainDataLabel)
 
-            """ Cost function computation"""
-            self.costFunctionValue = self.compute_loss_function(trainDataLabel) # Keep appending the cost function value across data points and epochs
-            self.costFunctionArray.append(self.costFunctionValue)
-            """ Backward pass"""
-            self.backwardpass(trainDataLabel)
-
-            """ Update weights"""
-            self.update_weights()
+            # """ Training accuracy"""
+            # self.get_accuracy(trainDataLabel, self.predictedOutput)
+            # self.trainAccuracy = self.accuracy
 
 
     def batch_gradient_descent(self):
@@ -298,19 +307,11 @@ class MLFFNeuralNetwork():
         trainDataSample = self.trainData
         trainDataLabel = self.trainDataLabels
 
-        """ Forward pass"""
-        self.forwardpass(trainDataSample)
+        self.compute_forward_backward_pass(trainDataSample,trainDataLabel)
 
-        """ Cost function computation"""
-        self.costFunctionValue = self.compute_loss_function(trainDataLabel) # Keep appending the cost function value across epochs
-        self.costFunctionArray.append(self.costFunctionValue)
-
-        """ Backward pass"""
-        self.backwardpass(trainDataLabel)
-
-        """ Update weights"""
-        self.update_weights()
-
+        """ Training accuracy"""
+        self.get_accuracy(trainDataLabel, self.predictedOutput)
+        self.trainAccuracy = self.accuracy
 
 
     def backpropagation(self):
@@ -336,9 +337,11 @@ class MLFFNeuralNetwork():
 
 
             if (self.validationData.shape[1] != 0): # There is some validation data to test model
-                print('Epoch: {0}/{1}, Training loss: {2:.1f}, Validation loss: {3:.1f}'.format(ele1+1, self.epochs, self.costFunctionValue, self.validationLoss))
+                print('\nEpoch: {0}/{1}'.format(ele1+1, self.epochs))
+                print('train_loss: {0:.1f}, val_loss: {1:.1f}, train_accuracy: {2:.1f}, val_accuracy: {3:.1f}'.format(self.costFunctionValue, self.validationLoss, self.trainAccuracy, self.validationAccuracy))
             else: # There is no validation data to test model
-                print('Epoch: {0}/{1}, Training loss: {2:.1f}'.format(ele1+1, self.epochs, self.costFunctionValue))
+                print('Epoch: {0}/{1}, train_loss: {2:.1f}'.format(ele1+1, self.epochs, self.costFunctionValue))
+
 
     def model_validation(self):
 
@@ -347,14 +350,25 @@ class MLFFNeuralNetwork():
         self.validationLoss = self.compute_loss_function(self.validationDataLabels) # Keep appending the cost function value across epochs
         self.validationLossArray.append(self.validationLoss)
 
+        """ validation accuracy"""
+        self.get_accuracy(self.validationDataLabels, self.predictedOutput)
+        self.validationAccuracy = self.accuracy
 
 
 
     def predict_nn(self,testData):
          # testData should be of shape numFeatures x numTestcases
-
         self.forwardpass(testData)
         self.testDataPredictedLabels = self.predictedOutput
+
+
+
+    def get_accuracy(self, trueLabels, predLabels, printAcc=False):
+        predClasses = np.argmax(predLabels,axis=0)
+        actualClasses = np.argmax(trueLabels,axis=0)
+        self.accuracy = np.mean(predClasses == actualClasses) * 100
+        if printAcc:
+            print('\nAccuracy of NN = {0:.2f} % \n'.format(self.accuracy))
 
 
 
