@@ -76,7 +76,7 @@ NN for classification problem
 2. Normalize input features to zero mean and unit variance, so that no one features totally dominates the output.
 3. Add momentum term to the gradient descent algo
 4. Variable learning rate/step size i.e large step size initially and smaller step size as we progress over more iterations
-5. Batch vs online vs mini batch mode of gradient descent. [Done. Mini batch mode pening]
+5. Batch vs online vs mini batch mode of gradient descent. [Done. Mini batch mode pending]
 6. Cross validation with validation dataset (k fold cross validation)
 7. How are Accuracy and loss curves computed on the validation dataset
 8. Make provision for batch mode and mini batch mode of training as well.[Done. Mini batch mode pening]
@@ -86,6 +86,7 @@ NN for classification problem
 12. Check if the weights update step is correct.[Done. It is correct]
 13. Cost/loss function is not changing at all with epochs! [Done. I just had to increase the number of epochs from 10k to 100k for the cost function to converge and come close to 0]
 14. Remove multiple passing of the 'stepSize' parameter to several functions! [Done]
+15. Compute confusion matrix
 """
 
 import numpy as np
