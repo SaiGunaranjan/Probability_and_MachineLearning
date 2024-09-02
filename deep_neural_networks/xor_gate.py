@@ -49,10 +49,7 @@ if modeClassification == True:
     numTrainingSamples = trainData.shape[1]
     plt.figure(1,figsize=(20,10),dpi=200)
     plt.title('Cost / loss function')
-    if modeOnlineGradientDes == True:
-        plt.plot(mlffnn.costFunctionArray[0::numTrainingSamples])
-    else:
-        plt.plot(mlffnn.costFunctionArray)
+    plt.plot(mlffnn.trainingLossArray)
     plt.xlabel('Epochs')
     plt.grid(True)
 
@@ -83,9 +80,6 @@ else:
     numTrainingSamples = trainData.shape[1]
     plt.figure(2,figsize=(20,10),dpi=200)
     plt.title('Cost / loss function')
-    if modeOnlineGradientDes == True:
-        plt.plot(mlffnn.costFunctionArray[0::numTrainingSamples])
-    else:
-        plt.plot(mlffnn.costFunctionArray)
+    plt.plot(mlffnn.trainingLossArray)
     plt.xlabel('Epochs')
     plt.grid(True)

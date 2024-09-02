@@ -9,7 +9,8 @@ Created on Fri Aug  9 12:17:39 2024
     https://medium.com/@ja_adimi/neural-networks-101-hands-on-practice-25df515e13b0
 
     In the above blog, they were able to achieve an accuracy of 93% using keras and tensorflow.
-    I was able to achieve 96% accuracy with my own NN functions and architecture.
+    I was able to achieve 96% accuracy with my batch version of GD and NN functions and architecture.
+    With mini_batch version and online versions, I was getting 93.33% accuracy
 """
 
 import pandas as pd
@@ -72,6 +73,9 @@ networkArchitecture = [(numInputNodes,'Identity'), (128,'ReLU'), (128, 'ReLU'), 
 mlffnn = MLFFNeuralNetwork(networkArchitecture)
 """ If validation loss is not changing, try reducing the learning rate"""
 mlffnn.set_model_params(modeGradDescent = 'batch',costfn = 'categorical_cross_entropy',epochs=1000, stepsize=0.0001)
+# mlffnn.set_model_params(modeGradDescent = 'online',costfn = 'categorical_cross_entropy',epochs=6000, stepsize=0.0001)
+"""batchsize should be a power of 2"""
+# mlffnn.set_model_params(modeGradDescent = 'mini_batch',batchsize = 16, costfn = 'categorical_cross_entropy',epochs=2000, stepsize=1e-3)
 split = 0.8 # Split data into training and testing
 numDataPoints = X_data.shape[1]
 numTrainingData = int(split*numDataPoints)
@@ -87,7 +91,7 @@ mlffnn.get_accuracy(testDataLabels, mlffnn.testDataPredictedLabels, printAcc=Tru
 plt.figure(1,figsize=(20,10),dpi=200)
 plt.subplot(1,2,1)
 plt.title('Training loss vs epochs')
-plt.plot(mlffnn.costFunctionArray)
+plt.plot(mlffnn.trainingLossArray)
 plt.xlabel('epochs')
 plt.grid(True)
 

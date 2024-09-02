@@ -62,6 +62,9 @@ generalized on unseen data and it has probably over fit on the training data.
 If the training data is skewed towards a few classes, then the model will not learn properly and will
 perfrom poorly on data from other classes which have less representation in training.
 
+02/09/2024
+12. Implemented the mini-batch mode of gradient descent
+
 
 
 Reference:
@@ -76,10 +79,10 @@ NN for classification problem
 2. Normalize input features to zero mean and unit variance, so that no one features totally dominates the output.
 3. Add momentum term to the gradient descent algo
 4. Variable learning rate/step size i.e large step size initially and smaller step size as we progress over more iterations
-5. Batch vs online vs mini batch mode of gradient descent. [Done. Mini batch mode pending]
+5. Batch vs online vs mini batch mode of gradient descent. [Done]
 6. Cross validation with validation dataset (k fold cross validation)
-7. How are Accuracy and loss curves computed on the validation dataset
-8. Make provision for batch mode and mini batch mode of training as well.[Done. Mini batch mode pening]
+7. How are Accuracy and loss curves computed on the validation dataset [Done]
+8. Make provision for batch mode and mini batch mode of training as well.[Done]
 9. Clean up multiple calls of the is else for the activation and derivative of activation function. [Done]
 10. Compare my implementation of the forward pass with tensorflow/pytorch implementation [Done]
 11. Check whether backward pass is correct.[Done]
@@ -111,11 +114,15 @@ class MLFFNeuralNetwork():
             weightMatrix = np.random.rand(numNodesLayerLplus1,numNodesLayerL+1) # +1 is for the bias term
             self.weightMatrixList.append(weightMatrix)
 
-    def set_model_params(self,modeGradDescent = 'online',costfn = 'categorical_cross_entropy',epochs = 100000, stepsize = 0.1):
+    def set_model_params(self,modeGradDescent = 'online',batchsize = 1, costfn = 'categorical_cross_entropy',epochs = 100000, stepsize = 0.1):
         self.modeGradDescent = modeGradDescent
         self.costfn = costfn
         self.epochs = epochs
         self.stepsize = stepsize
+        # Define batch size only for mini_batch mode of gradient descent
+        if (self.modeGradDescent == 'mini_batch'):
+            self.batchsize = batchsize # Batch size is typically a power of 2
+
 
 
 
@@ -183,15 +190,7 @@ class MLFFNeuralNetwork():
 
 
     def forwardpass(self, trainDataSample):
-        # Below is just a hack line to check if the forward pass is correctly codes given the correct weights
 
-        # self.weightMatrixList = [np.array([[-0.5,  1. ,  1. ],
-        #                                    [-1.5,  1. ,  1. ]]),
-        #                          np.array([[-0.5,  1. ,  -2. ]])]
-
-        # self.weightMatrixList = [np.array([[-5.6836409,  3.70978057,  3.71140367],
-        #                                     [ -2.42011388,  5.78819908, 5.79615577 ]]),
-        #                           np.array([[-3.37817248,   -8.14903896 ,  7.50503069 ]])]
         """ Forward pass"""
         layerLOutput = trainDataSample
         numTrainingSamples = trainDataSample.shape[1]
@@ -220,7 +219,7 @@ class MLFFNeuralNetwork():
 
 
     def backwardpass(self, trainDataLabel):
-        # This backward pass computation is for 'categorical_cross_entropy', 'squared error' loss functions and online and batch mode. Need to add the computation of backward pass for mini batch
+        # This backward pass computation is for 'categorical_cross_entropy', 'squared error' loss functions
 
         # numTrainingSamples = trainDataLabel.shape[1]
         self.errorEachLayer = []
@@ -255,8 +254,8 @@ class MLFFNeuralNetwork():
         self.forwardpass(trainDataSample)
 
         """ Cost function computation"""
-        self.costFunctionValue = self.compute_loss_function(trainDataLabel) # Keep appending the cost function value across data points and epochs
-        self.costFunctionArray.append(self.costFunctionValue)
+        self.costFunctionValue = self.compute_loss_function(trainDataLabel)
+
         """ Backward pass"""
         self.backwardpass(trainDataLabel)
 
@@ -272,13 +271,14 @@ class MLFFNeuralNetwork():
         count = -1
         for ele4 in range(self.numLayers-1):
             gradientCostFnwrtWeights = self.errorEachLayer[count] @ self.outputEachlayer[ele4].T
-            self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights
+            self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights # Gradient descent step
             count -= 1
 
 
     def train_nn(self,trainData,trainDataLabels,split = 1):
         # trainDataLabels should also be a 1 hot vector representation for classification task
-
+        """ split tells what fraction of the data should be used for traninging and the remianingpart will be used for validation
+        split (0,1]"""
         """ Split data into training and validation data. Use validation data to test model on unseeen data while training"""
         numDataPoints = trainData.shape[1]
         numTrainingData = int(np.round(split*numDataPoints))
@@ -290,17 +290,21 @@ class MLFFNeuralNetwork():
         self.backpropagation()
 
 
-    def stochastic_gradient_descent(self, arr):
+    def stochastic_gradient_descent(self):
+
+        numTrainData = self.trainData.shape[1]
+        arr = np.arange(numTrainData)
+        """Randomly shuffle the order of feeding the training data for each epoch"""
+        np.random.shuffle(arr)
         """ arr is the randomly shuffled order of sampling the training data"""
         for ele2 in arr:
             trainDataSample = self.trainData[:,ele2][:,None]
             trainDataLabel = self.trainDataLabels[:,ele2][:,None]
-
             self.compute_forward_backward_pass(trainDataSample,trainDataLabel)
 
-            # """ Training accuracy"""
-            # self.get_accuracy(trainDataLabel, self.predictedOutput)
-            # self.trainAccuracy = self.accuracy
+        """ Training loss and accuracy post each epoch"""
+        self.compute_train_loss_acc()
+
 
 
     def batch_gradient_descent(self):
@@ -310,38 +314,63 @@ class MLFFNeuralNetwork():
 
         self.compute_forward_backward_pass(trainDataSample,trainDataLabel)
 
-        """ Training accuracy"""
-        self.get_accuracy(trainDataLabel, self.predictedOutput)
-        self.trainAccuracy = self.accuracy
+        """ Training loss and accuracy post each epoch"""
+        self.compute_train_loss_acc()
+
+
+    def mini_batch_gradient_descent(self):
+
+        numTrainData = self.trainData.shape[1]
+        arr = np.arange(numTrainData)
+        """Randomly shuffle the order of feeding the training data for each epoch"""
+        np.random.shuffle(arr)
+        """ arr is the randomly shuffled order of sampling the training data"""
+        trainDataShuffle = self.trainData[:,arr]
+        trainDataLabelsShuffle = self.trainDataLabels[:,arr]
+        numTrainingData = self.trainData.shape[1]
+        numBatches = int(np.ceil(numTrainingData/self.batchsize))
+        startIndex = 0
+        for ele in range(numBatches):
+            if (startIndex+self.batchsize <= numTrainingData):
+                trainDataSample = trainDataShuffle[:,startIndex:startIndex+self.batchsize]
+                trainDataLabel = trainDataLabelsShuffle[:,startIndex:startIndex+self.batchsize]
+            else:
+                trainDataSample = trainDataShuffle[:,startIndex::]
+                trainDataLabel = trainDataLabelsShuffle[:,startIndex::]
+
+            self.compute_forward_backward_pass(trainDataSample,trainDataLabel)
+
+            startIndex += self.batchsize
+
+        """ Training loss and accuracy post each epoch"""
+        self.compute_train_loss_acc()
+
+
 
 
     def backpropagation(self):
-        """ Currently the back propagation is coded for online and batch mode of weight update. Need to add for mini batch mode as well"""
 
-        numTrainData = self.trainData.shape[1]
-        # numFeatures = trainData.shape[0]
-        arr = np.arange(numTrainData)
-        self.costFunctionArray = []
+        self.trainingLossArray = []
         self.validationLossArray = []
         for ele1 in np.arange(self.epochs):
 
             if self.modeGradDescent == 'online':
-                """Randomly shuffle the order of feeding the training data for each epoch"""
-                np.random.shuffle(arr)
-                self.stochastic_gradient_descent(arr)
+                self.stochastic_gradient_descent()
 
             elif self.modeGradDescent == 'batch':
                 self.batch_gradient_descent()
 
+            elif self.modeGradDescent == 'mini_batch':
+                self.mini_batch_gradient_descent()
+
             if (self.validationData.shape[1] != 0): # There is some validation data to test model
                 self.model_validation()
 
-
             if (self.validationData.shape[1] != 0): # There is some validation data to test model
                 print('\nEpoch: {0}/{1}'.format(ele1+1, self.epochs))
-                print('train_loss: {0:.1f}, val_loss: {1:.1f}, train_accuracy: {2:.1f}, val_accuracy: {3:.1f}'.format(self.costFunctionValue, self.validationLoss, self.trainAccuracy, self.validationAccuracy))
+                print('train_loss: {0:.1f}, val_loss: {1:.1f}, train_accuracy: {2:.1f}, val_accuracy: {3:.1f}'.format(self.trainingLoss, self.validationLoss, self.trainAccuracy, self.validationAccuracy))
             else: # There is no validation data to test model
-                print('Epoch: {0}/{1}, train_loss: {2:.1f}'.format(ele1+1, self.epochs, self.costFunctionValue))
+                print('Epoch: {0}/{1}, train_loss: {2:.1f}'.format(ele1+1, self.epochs, self.trainingLoss))
 
 
     def model_validation(self):
@@ -371,6 +400,14 @@ class MLFFNeuralNetwork():
         if printAcc:
             print('\nAccuracy of NN = {0:.2f} % \n'.format(self.accuracy))
 
+
+    def compute_train_loss_acc(self):
+        """ Compute training loss and accuracy on the training data again with the weights obtained at the end of each epoch"""
+        self.forwardpass(self.trainData) # Compute forward pass output on the entire training data after each epoch
+        self.trainingLoss = self.compute_loss_function(self.trainDataLabels)
+        self.trainingLossArray.append(self.trainingLoss) # Keep appending the cost/loss function value for each epoch
+        self.get_accuracy(self.trainDataLabels, self.predictedOutput)
+        self.trainAccuracy = self.accuracy
 
 
 
