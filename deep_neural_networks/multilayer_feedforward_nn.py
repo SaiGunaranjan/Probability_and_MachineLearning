@@ -65,6 +65,9 @@ perfrom poorly on data from other classes which have less representation in trai
 02/09/2024
 12. Implemented the mini-batch mode of gradient descent
 
+03/09/2024
+13. Plotting the confusion matrix
+
 
 
 Reference:
@@ -76,7 +79,7 @@ https://medium.com/@ja_adimi/neural-networks-101-hands-on-practice-25df515e13b0
 NN for classification problem
 
 1. Inititalize all the weights. How to initialize W matrices of each layer[Done. Random sampling from a uniform distribution]
-2. Normalize input features to zero mean and unit variance, so that no one features totally dominates the output.
+2. Normalize input features to zero mean and unit variance, so that no one features totally dominates the output.[Done]
 3. Add momentum term to the gradient descent algo
 4. Variable learning rate/step size i.e large step size initially and smaller step size as we progress over more iterations
 5. Batch vs online vs mini batch mode of gradient descent. [Done]
@@ -89,10 +92,13 @@ NN for classification problem
 12. Check if the weights update step is correct.[Done. It is correct]
 13. Cost/loss function is not changing at all with epochs! [Done. I just had to increase the number of epochs from 10k to 100k for the cost function to converge and come close to 0]
 14. Remove multiple passing of the 'stepSize' parameter to several functions! [Done]
-15. Compute confusion matrix
+15. Compute confusion matrix[Done]
 """
 
 import numpy as np
+import seaborn as sns
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
 np.random.seed(0)
 
 class MLFFNeuralNetwork():
@@ -409,6 +415,19 @@ class MLFFNeuralNetwork():
         self.get_accuracy(self.trainDataLabels, self.predictedOutput)
         self.trainAccuracy = self.accuracy
 
+
+    def plot_confusion_matrix(self, trueLabels, predLabels, classLabels):
+
+        predClasses = np.argmax(predLabels,axis=0)
+        actualClasses = np.argmax(trueLabels,axis=0)
+        cm = confusion_matrix(actualClasses, predClasses)
+        # Plot confusion matrix
+        plt.figure(figsize=(20, 10))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False, xticklabels=classLabels, yticklabels=classLabels)
+        plt.title('Confusion Matrix')
+        plt.xlabel('Predicted Label')
+        plt.ylabel('True Label')
+        plt.show()
 
 
 
