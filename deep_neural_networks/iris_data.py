@@ -30,6 +30,9 @@ iris_data = pd.read_csv(path + '\\'+ 'iris.csv')
 # Create a LabelEncoder object
 label_encoder = preprocessing.LabelEncoder()
 
+# Get mapping of class labels to numerical values and vice versa
+classLabelsObj = label_encoder.fit(iris_data['Species'])
+classLabels = list(classLabelsObj.classes_)
 # Use the LabelEncoder object to transform the Species target variable
 iris_data['Species'] = label_encoder.fit_transform(iris_data['Species'])
 # print(iris_data.head(10))
@@ -87,8 +90,9 @@ testData = X_data[:,numTrainingData::]
 testDataLabels = Y_data[:,numTrainingData::]
 mlffnn.predict_nn(testData)
 mlffnn.get_accuracy(testDataLabels, mlffnn.testDataPredictedLabels, printAcc=True)
+mlffnn.plot_confusion_matrix(testDataLabels, mlffnn.testDataPredictedLabels, classLabels)
 
-plt.figure(1,figsize=(20,10),dpi=200)
+plt.figure(2,figsize=(20,10),dpi=200)
 plt.subplot(1,2,1)
 plt.title('Training loss vs epochs')
 plt.plot(mlffnn.trainingLossArray)
