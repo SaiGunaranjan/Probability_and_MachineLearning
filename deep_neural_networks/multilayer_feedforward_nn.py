@@ -93,6 +93,8 @@ NN for classification problem
 13. Cost/loss function is not changing at all with epochs! [Done. I just had to increase the number of epochs from 10k to 100k for the cost function to converge and come close to 0]
 14. Remove multiple passing of the 'stepSize' parameter to several functions! [Done]
 15. Compute confusion matrix[Done]
+16. Stop training process after training and validation accuracy both hit 90%[Done]
+17. Find out failure cases[Done]
 """
 
 import numpy as np
@@ -375,6 +377,8 @@ class MLFFNeuralNetwork():
             if (self.validationData.shape[1] != 0): # There is some validation data to test model
                 print('\nEpoch: {0}/{1}'.format(ele1+1, self.epochs))
                 print('train_loss: {0:.1f}, val_loss: {1:.1f}, train_accuracy: {2:.1f}, val_accuracy: {3:.1f}'.format(self.trainingLoss, self.validationLoss, self.trainAccuracy, self.validationAccuracy))
+                if ((self.trainAccuracy > 90) and (self.validationAccuracy > 90)):
+                    break
             else: # There is no validation data to test model
                 print('Epoch: {0}/{1}, train_loss: {2:.1f}'.format(ele1+1, self.epochs, self.trainingLoss))
 
@@ -424,7 +428,7 @@ class MLFFNeuralNetwork():
         # Plot confusion matrix
         plt.figure(figsize=(20, 10))
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False, xticklabels=classLabels, yticklabels=classLabels)
-        plt.title('Confusion Matrix')
+        plt.title('Confusion Matrix. Test accuracy = {0:.2f} %'.format(self.accuracy))
         plt.xlabel('Predicted Label')
         plt.ylabel('True Label')
         plt.show()
