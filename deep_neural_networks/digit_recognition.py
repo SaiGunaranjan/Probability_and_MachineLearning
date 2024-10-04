@@ -5,7 +5,8 @@ Created on Tue Sep  3 23:11:52 2024
 @author: Sai Gunaranjan
 """
 
-""" In this script, I have performed digit classification of MNIST dataset and achieved 90% accuracy
+""" In this script, I have performed digit classification of MNIST dataset
+(https://www.kaggle.com/datasets/hojjatk/mnist-dataset) and achieved 90% accuracy
 on the test data. By trial and erro, I found that an ANN architecture with 1 hidden layer
 with 100 neurons and batch mode of GD with stepsize of 1e-6 is required to train the model to achive
 90% traning accuracy, validation accuracy and testing accuracy.
@@ -14,7 +15,21 @@ Even though, I have given 10000 epochs, the model achieves 90% accuracy after ab
 The input images are 8 bit quantized values and have values ranging from 0 to 255.
 One important aspect I learned in this exercise is that, we need to normalize the input image
 by 255 to ensure the input data lies between 0 to 1. Normlaizing this way, helps ensure stability
-of the weights
+of the weights.
+
+
+
+Need to go from ANN to CNN?
+https://www.quora.com/Why-do-we-use-CNN-when-we-already-have-ANN-with-a-fully-connected-structure
+1. Exploding number of parameters/weights especially when the size of input image is very large
+2. Larger the input size, more the number of weights/parameters --> more number of examples
+required to train the network.
+3. For an ANN, an image with cat at top left corner of image is different from an image with cat at
+bottom right of the image, so it treats it as two different outputs. Whereas, a CNN does a
+local weighting/activation and hence for a CNN, both the images are treated the same.
+
+Hence we will move to CNNS for image datasets.
+
 """
 
 #
@@ -26,7 +41,10 @@ from array import array
 from os.path  import join
 import tensorflow as tf
 from multilayer_feedforward_nn import MLFFNeuralNetwork
+import matplotlib.pyplot as plt
 
+
+plt.close('all')
 #
 # MNIST Data Loader Class
 #

@@ -103,6 +103,7 @@ from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
 np.random.seed(0)
 
+
 class MLFFNeuralNetwork():
 
     def __init__(self,networkArchitecture):
@@ -123,6 +124,7 @@ class MLFFNeuralNetwork():
             self.weightMatrixList.append(weightMatrix)
 
     def set_model_params(self,modeGradDescent = 'online',batchsize = 1, costfn = 'categorical_cross_entropy',epochs = 100000, stepsize = 0.1):
+        """ By default, it is set to online/stochastic mode of GD which has a batch size = 1"""
         self.modeGradDescent = modeGradDescent
         self.costfn = costfn
         self.epochs = epochs
@@ -432,11 +434,6 @@ class MLFFNeuralNetwork():
         plt.xlabel('Predicted Label')
         plt.ylabel('True Label')
         plt.show()
-
-
-
-
-
 
 
 
