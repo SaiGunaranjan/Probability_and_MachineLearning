@@ -102,7 +102,8 @@ import seaborn as sns
 from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
 np.random.seed(0)
-
+from scipy.signal import convolve2d
+import time as time
 
 class MLFFNeuralNetwork():
 
@@ -434,6 +435,486 @@ class MLFFNeuralNetwork():
         plt.xlabel('Predicted Label')
         plt.ylabel('True Label')
         plt.show()
+
+
+""" Convolutional Neural Networks
+
+1. Ensure size of kernel at any stage is smaller than size of input. Handle this gracefully, else it might crash
+2. Need to keep track of index during max pool operation
+3. Currently, this will support online mode of Gradient descent
+4. ita is not stored for 1st layer of dense layer. Check if this is required
+5. Generating/Accessing itaLastConvLayerPostPool is not correct![Fixed]
+6. All pool layers have to be same type. Either all have to be maxpool or all have to be avg pool(for now). I'm not handling a mix of max and avg pools in this script
+7. Write a separate function for maxpool survived itaL[Not needed. ]
+8. Backpropagation for bias also needs to be done[Done]
+9. Rename outputEachConvlayer to outputEachConvlayerPostPool
+10. Implement update for weights and bias [Done]
+11. Not clear how to perform derivative of activation function (f'(ita)) for avg pooling. Especially for activation functions other than ReLU
+12. ele4 index for backwardpass_cnn. Is this looping correctly over itaConv, conVLayrs, etc?
+13. Check if the code runs when there is no dense layer at all. I think, currently, I have not made a provision to cater to zero/no dense layers. This may be required!
+14. inputShape which is currently argument to the CNN init is not defined for multile/batch mode
+15. Define what should be the shape of data i.e channels x h x w x numData? or other way round
+16. Currently not enabled for multple data points at once! This needs to enabled asap to see model accuracy/valdation, etc on the trained weight parameters
+17. Verify/validate batch and mini batch gradient descent
+18. Multiple definitions of numTrainData in mini_batch_gradient_desc and mini_batch_gradient_desc_cnn
+19. Change the trainAccuracy and ValidationAccuracy exit condition to 95%
+20. Make step size smaller and smaller as the training and validation accuracy goes beyond 90% and you wish to achieve a better accuracy
+21. Add the total time of CNN execution including training and testing
+"""
+
+class ConvolutionalNeuralNetwork():
+
+    def __init__(self, inputShape, convLayer, poolLayer, denseLayer, outputLayer):
+
+        self.inputShape = inputShape # Numchannles, l, w
+        #(#filters, size of kernel(length), activation function)
+        self.convLayer = convLayer # Len of this list is the number of convolutional layers
+        self.poolLayer = poolLayer # size,stride, type of pool. There will be a pooing layer for every convolutional layer.
+        #(#nodes, activation function)
+        self.denseLayer = denseLayer # Len of this list indicates number of hidden layers
+        self.outputLayer = outputLayer
+
+        """ Convolutional kernels and pool layers are always assumed to be having same height and width i.e they are square shaped"""
+        # networkArchitecture = [inputShape, convLayer, denseLayer, outputLayer]
+        """ Kernel weights initialization for convolutional layers"""
+        inputDepth = self.inputShape[0]
+        inputHeight, inputWid = self.inputShape[1], self.inputShape[2]
+        self.kernelWeights = []
+        self.bias = []
+        self.numConvLayers = len(self.convLayer)
+
+        for ele in range(self.numConvLayers):
+            """ Conv layer"""
+            numFilters = self.convLayer[ele][0]
+            filterSize = self.convLayer[ele][1] # FilterSize/KernelSize
+            kernelWeights = np.random.randn(numFilters,filterSize,filterSize,inputDepth)
+            bias = np.random.randn(numFilters)
+            self.kernelWeights.append(kernelWeights)
+            self.bias.append(bias)
+            inputDepth = numFilters
+            inputHeight, inputWid = inputHeight-filterSize+1, inputWid-filterSize+1 # Post "valid" convolution
+            """ Pooling layer"""
+            poolSize = self.poolLayer[ele][0]
+            poolStride = self.poolLayer[ele][1]
+            """ Verify below formula once"""
+            inputHeight, inputWid = (inputHeight-poolSize)//poolStride + 1, (inputWid-poolSize)//poolStride + 1
+
+        numNodesPostFlatten = (inputHeight * inputWid * inputDepth)#.astype(np.int32)
+        flattenLayer = [(numNodesPostFlatten,'Identity')]
+        denseLayerArchitecture = flattenLayer + self.denseLayer + self.outputLayer
+        # self.numDenseLayers = len(self.denseLayerArchitecture)
+        """ Dense layer weights initialization"""
+        self.mlffnn = MLFFNeuralNetwork(denseLayerArchitecture)
+
+
+
+    def forwardpass_cnn(self, trainDataImage):
+        """ Check indices of ele3 for forward pass"""
+        """ Forward pass CNN"""
+        layerLOutput = trainDataImage
+        numTrainingSamples = trainDataImage.shape[3] # 1st dim is numChannels, 2nd and 3rd dim are height, width, 4th dim is number of such images
+        self.ItaConv = []
+        self.outputEachConvlayer = []
+        self.maxPoolingIndexEachConvLayer = []
+
+        """Input layer"""
+        # ele3 = 0, # Input/1st layer is taken as a dummy convolution layer but with no convolution
+        layerLminus1Output = layerLOutput
+        self.maxPoolingIndex = np.zeros(layerLOutput.shape,dtype=np.int32)
+        self.outputEachConvlayer.append(layerLminus1Output) # Output for each layer. Stored post pooling
+        self.maxPoolingIndexEachConvLayer.append(self.maxPoolingIndex)
+        # ele3 is looping over the convolution layers
+        for ele3 in range(1,self.numConvLayers+1):
+            weightMatrixLayerLminus1toL = self.kernelWeights[ele3-1]
+            """ Convolution followed by pooling"""
+            """ Currently written only for valid mode of convolution"""
+            itaLayerL = self.cnn_convolve2d(layerLminus1Output, weightMatrixLayerLminus1toL)
+            itaLayerL += self.bias[ele3-1][:,None,None,None]
+            activationFn = self.convLayer[ele3-1][2] # Activation function name
+            layerLOutput = self.mlffnn.activation_function(itaLayerL,activationFn) # gives output of the activation function for the ita input
+            """ Pooling"""
+            poolLayer = self.poolLayer[ele3-1]
+            layerLminus1Output = self.pooling(layerLOutput,poolLayer)
+
+            self.ItaConv.append(itaLayerL) # ita is not stored for input layer. It is stored for all other layers.
+            self.outputEachConvlayer.append(layerLminus1Output) # Output for each layer. Stored post pooling
+            self.maxPoolingIndexEachConvLayer.append(self.maxPoolingIndex)
+
+
+        numChannelsLastConvLayer = layerLminus1Output.shape[0]
+        heightLastConvLayer = layerLminus1Output.shape[1]
+        widthLastConvLayer = layerLminus1Output.shape[2]
+        layerLminus1Output2d = np.transpose(layerLminus1Output,(3,0,1,2)).reshape(numTrainingSamples,
+                                                           numChannelsLastConvLayer*heightLastConvLayer*widthLastConvLayer)
+
+
+        flattenOutputConvLayers = layerLminus1Output2d.T # For batch/mini batch mode, we will have to make it 2 D and not flatten as 1D
+        self.mlffnn.forwardpass(flattenOutputConvLayers)
+        self.predictedOutputcnn = self.mlffnn.predictedOutput
+
+
+
+    def backwardpass_cnn(self,trainDataLabel):
+
+        """ Dense layer backward pass"""
+        self.mlffnn.backwardpass(trainDataLabel)
+
+        """ Back propagating error from dense layer to last convolutional layer"""
+        errorDenseLayer2 = self.mlffnn.errorEachLayer[-1]
+        weightMatrixLayer1to2 = self.mlffnn.weightMatrixList[0]
+        errorDenseLayer1 = (weightMatrixLayer1to2[:,1::].T @ errorDenseLayer2) # numNodesFlattenLayer x numDataPoints
+        errorDenseLayer1 = np.transpose(errorDenseLayer1,(1,0)) # numDataPoints x numNodesFlattenLayer
+        numDataPoints = errorDenseLayer1.shape[0]
+        numChannels, height, width, _ = self.outputEachConvlayer[-1].shape # _ and numDataPointsshould be same
+        errorLastConvLayerPostPool = errorDenseLayer1.reshape(numDataPoints, numChannels, height, width)
+        errorLastConvLayerPostPool = np.transpose(errorLastConvLayerPostPool, (1,2,3,0))
+
+        """Convolutional layer back propogation """
+        shapeLayerLPrePooling = self.ItaConv[-1].shape
+        poolProperties = self.poolLayer[-1]
+        poolInds = self.maxPoolingIndexEachConvLayer[-1]
+        errorLastConvLayerPrePool = self.backprop_poollayer(errorLastConvLayerPostPool, poolInds, poolProperties, shapeLayerLPrePooling)
+
+        """ First backpropagate error from pooling layer and then multiply with derivative of activation function"""
+        itaLayerL = self.ItaConv[-1]
+        activationFn = self.convLayer[-1][2] # Activation fn of last convolutional layer
+        activationFnDerivative = self.mlffnn.derivative_activation_function(itaLayerL,activationFn)
+        errorLayerLplus1 = errorLastConvLayerPrePool * activationFnDerivative
+
+        self.errorEachConvLayer = []
+        # ele4 loop goes from layer L-1(output) to layer 0 input
+        for ele4 in range(self.numConvLayers-1,0,-1):
+            kernelWeightsLayerL = self.kernelWeights[ele4]
+            """ Below convolution should be full correlation"""
+            kernelWeightsLayerLFlipHeightWidth = np.flip(kernelWeightsLayerL,axis=(1,2))
+            errorLayerL = self.cnn_backward_convolve2d(errorLayerLplus1, kernelWeightsLayerLFlipHeightWidth, convMode='full')
+
+            itaLayerL = self.ItaConv[ele4-1]
+            activationFn = self.convLayer[ele4-1][2]
+            activationFnDerivative = self.mlffnn.derivative_activation_function(itaLayerL,activationFn)
+            """ First backpropagate error from pooling layer and then multiply with derivative of activation function"""
+            shapeLayerLPrePooling = itaLayerL.shape
+            poolProperties = self.poolLayer[ele4-1]
+            poolInds = self.maxPoolingIndexEachConvLayer[ele4]#self.maxPoolingIndexEachConvLayer[ele4-1]
+            errorLayerLPrePool = self.backprop_poollayer(errorLayerL, poolInds, poolProperties, shapeLayerLPrePooling)
+            errorLayerLplus1 = errorLayerLPrePool * activationFnDerivative
+
+            self.errorEachConvLayer.append(errorLayerLplus1) # These error arrays are packed from layer L-1 down to 1 and not from 1 to L-1. They are arranged in reverse order. (layers start from 0 to L-1)
+            # Errors/delta obtained for all the layers from 2 to L
+
+
+
+    def compute_forward_backward_pass_cnn(self, trainDataSample, trainDataLabel):
+
+        """ Forward pass"""
+        self.forwardpass_cnn(trainDataSample)
+
+        """ Cost function computation"""
+        self.costFunctionValue = self.mlffnn.compute_loss_function(trainDataLabel)
+
+        """ Backward pass"""
+        self.backwardpass_cnn(trainDataLabel)
+
+        """ Update weights"""
+        self.update_weights_cnn()
+
+
+
+    def update_weights_cnn(self):
+        # Errors/delta obtained for all the layers from 2 to L
+        # Compute gradient wrt Wl_ij
+        # dJ/dWl_ij = deltal+1_j * flip(yi_l)
+        # gradient # dJ/dwij for all i,j
+
+        """ Currently this dJ/dWl_ij  is computed per training sample or online mode of GD. In future, I will extend to batch and mini batch mode of GD"""
+        count = -1
+        for ele4 in range(self.numConvLayers-1):
+            gradientCostFnwrtKernelWeights = self.cnn_gradient_convolve2d(np.flip(self.outputEachConvlayer[ele4],axis=(1,2)), self.errorEachConvLayer[count], convMode='valid')
+            gradientCostFnwrtKernelWeightsAllDataPoints = np.sum(gradientCostFnwrtKernelWeights,axis=-1)
+            self.kernelWeights[ele4] = self.kernelWeights[ele4] - self.mlffnn.stepsize*gradientCostFnwrtKernelWeightsAllDataPoints # Gradient descent step
+            gradientCostFnwrtBias = np.sum(self.errorEachConvLayer[count],axis=(1,2,3))
+            self.bias[ele4] = self.bias[ele4] - self.mlffnn.stepsize*gradientCostFnwrtBias # Gradient descent step
+            count -= 1
+
+        self.mlffnn.update_weights()
+
+
+
+    def train_cnn(self,trainData,trainDataLabels,split = 1):
+        # trainDataLabels should also be a 1 hot vector representation for classification task
+        """ split tells what fraction of the data should be used for traninging and the remianingpart will be used for validation
+        split (0,1]"""
+        """ Split data into training and validation data. Use validation data to test model on unseeen data while training"""
+        numDataPoints = trainData.shape[3]
+        numTrainingData = int(np.round(split*numDataPoints))
+        self.trainData = trainData[:,:,:,0:numTrainingData]
+        self.trainDataLabels = trainDataLabels[:,0:numTrainingData]
+        self.validationData = trainData[:,:,:,numTrainingData::]
+        self.validationDataLabels = trainDataLabels[:,numTrainingData::]
+
+        self.backpropagation_cnn()
+
+
+
+    def stochastic_gradient_descent_cnn(self):
+
+        numTrainData = self.trainData.shape[3]
+        arr = np.arange(numTrainData)
+        """Randomly shuffle the order of feeding the training data for each epoch"""
+        np.random.shuffle(arr)
+        """ arr is the randomly shuffled order of sampling the training data"""
+        count = 1
+        for ele2 in arr:
+            trainDataSample = self.trainData[:,:,:,ele2][:,:,:,None]
+            trainDataLabel = self.trainDataLabels[:,ele2][:,None]
+            self.compute_forward_backward_pass_cnn(trainDataSample,trainDataLabel)
+            # print('Training example {}/{}'.format(count,numTrainData))
+            count += 1
+
+        # print('Im here')
+        """ Training loss and accuracy post each epoch"""
+        """ This needs batch processing which I havent brought up yet"""
+        self.compute_train_loss_acc_cnn()
+
+
+    def batch_gradient_descent_cnn(self):
+
+        trainDataSample = self.trainData
+        trainDataLabel = self.trainDataLabels
+
+        self.compute_forward_backward_pass_cnn(trainDataSample,trainDataLabel)
+
+        """ Training loss and accuracy post each epoch"""
+        self.compute_train_loss_acc_cnn()
+
+
+    def mini_batch_gradient_descent_cnn(self):
+
+        numTrainData = self.trainData.shape[3]
+        arr = np.arange(numTrainData)
+        """Randomly shuffle the order of feeding the training data for each epoch"""
+        np.random.shuffle(arr)
+        """ arr is the randomly shuffled order of sampling the training data"""
+        trainDataShuffle = self.trainData[:,:,:,arr]
+        trainDataLabelsShuffle = self.trainDataLabels[:,arr]
+        numTrainingData = self.trainData.shape[3]
+        numBatches = int(np.ceil(numTrainingData/self.mlffnn.batchsize))
+        startIndex = 0
+        for ele in range(numBatches):
+            if (startIndex+self.mlffnn.batchsize <= numTrainingData):
+                trainDataSample = trainDataShuffle[:,:,:,startIndex:startIndex+self.mlffnn.batchsize]
+                trainDataLabel = trainDataLabelsShuffle[:,startIndex:startIndex+self.mlffnn.batchsize]
+            else:
+                trainDataSample = trainDataShuffle[:,:,:,startIndex::]
+                trainDataLabel = trainDataLabelsShuffle[:,startIndex::]
+
+            self.compute_forward_backward_pass_cnn(trainDataSample,trainDataLabel)
+
+            startIndex += self.mlffnn.batchsize
+
+        """ Training loss and accuracy post each epoch"""
+        self.compute_train_loss_acc_cnn()
+
+
+    def model_validation_cnn(self):
+
+        self.predict_cnn(self.validationData)
+        """ Validation loss"""
+        self.validationLoss = self.mlffnn.compute_loss_function(self.validationDataLabels) # Keep appending the cost function value across epochs
+        self.validationLossArray.append(self.validationLoss)
+
+        """ validation accuracy"""
+        self.mlffnn.get_accuracy(self.validationDataLabels, self.predictedOutputcnn)
+        self.validationAccuracy = self.mlffnn.accuracy
+
+
+
+    def predict_cnn(self,testData):
+         # testData should be of shape numFeatures x numTestcases
+        self.forwardpass_cnn(testData)
+        self.testDataPredictedLabels = self.predictedOutputcnn
+
+
+    def backpropagation_cnn(self):
+
+        self.trainingLossArray = []
+        self.validationLossArray = []
+        for ele1 in np.arange(self.mlffnn.epochs):
+            timeEpochStart = time.time()
+            if self.mlffnn.modeGradDescent == 'online':
+                self.stochastic_gradient_descent_cnn()
+
+            elif self.mlffnn.modeGradDescent == 'batch':
+                self.batch_gradient_descent_cnn()
+
+            elif self.mlffnn.modeGradDescent == 'mini_batch':
+                self.mini_batch_gradient_descent_cnn()
+
+            if (self.validationData.shape[-1] != 0): # There is some validation data to test model
+                self.model_validation_cnn()
+            timeEpochEnd = time.time()
+            if (self.validationData.shape[-1] != 0): # There is some validation data to test model
+                print('\nEpoch: {0}/{1}'.format(ele1+1, self.mlffnn.epochs))
+                print('train_loss: {0:.1f}, val_loss: {1:.1f}, train_accuracy: {2:.1f}, val_accuracy: {3:.1f}'.format(self.trainingLoss, self.validationLoss, self.trainAccuracy, self.validationAccuracy))
+                if ((self.trainAccuracy > 92) and (self.validationAccuracy > 92)):
+                    break
+            else: # There is no validation data to test model
+                print('Epoch: {0}/{1}, train_loss: {2:.1f}'.format(ele1+1, self.epochs, self.trainingLoss))
+            timeEachEpoch = (timeEpochEnd - timeEpochStart)/60
+            print('Time taken for epoch {0} = {1:.2f} min'.format(ele1+1, timeEachEpoch))
+
+
+    def compute_train_loss_acc_cnn(self):
+        """ Compute training loss and accuracy on the training data again with the weights obtained at the end of each epoch"""
+        self.forwardpass_cnn(self.trainData) # Compute forward pass output on the entire training data after each epoch
+        self.trainingLoss = self.mlffnn.compute_loss_function(self.trainDataLabels)
+        self.trainingLossArray.append(self.trainingLoss) # Keep appending the cost/loss function value for each epoch
+        self.mlffnn.get_accuracy(self.trainDataLabels, self.predictedOutputcnn)
+        self.trainAccuracy = self.mlffnn.accuracy
+
+
+
+    def backprop_poollayer(self,errorGradients, poolInds, poolProperties, shapeLayerLPrePooling):
+
+        # numChannelsPrePooling = shapeLayerLPrePooling[0]
+        # heightPrePooling = shapeLayerLPrePooling[1]
+        # widthPrePooling = shapeLayerLPrePooling[2]
+        errorGradientsPrePool = np.zeros(shapeLayerLPrePooling,dtype=np.float32)
+
+        errorGradientnumChannels = errorGradients.shape[0]
+        errorGradientsHeight = errorGradients.shape[1]
+        errorGradientsWidth = errorGradients.shape[2]
+        numDataPoints = errorGradients.shape[3]
+
+        poolSize, poolStride, poolType = poolProperties
+        """ Right now coded for only max pool. Will extend to avg pool as well"""
+        for ele1 in range(numDataPoints):
+            for ele in range(errorGradientnumChannels):
+                for y in range(0, errorGradientsHeight):
+                    for x in range(0, errorGradientsWidth):
+                        region = (errorGradientsPrePool[ele,y*poolStride:y*poolStride+poolSize, x*poolStride:x*poolStride+poolSize, ele1]).copy()
+                        ind = poolInds[ele,y,x, ele1]
+                        ind2d = np.unravel_index(ind,(poolSize,poolSize))
+                        region[ind2d] = errorGradients[ele,y,x, ele1]
+                        errorGradientsPrePool[ele,y*poolStride:y*poolStride+poolSize,
+                                              x*poolStride:x*poolStride+poolSize, ele1] = region
+
+
+        return errorGradientsPrePool
+
+
+
+    def cnn_convolve2d(self,inputImage3d, kernelFunctions,convMode='valid'):
+        """ Currently wirtten only for valid mode of convolution"""
+        inputHeight = inputImage3d.shape[1]
+        inputWidth = inputImage3d.shape[2]
+        numDataPoints = inputImage3d.shape[3]
+        numKernels = kernelFunctions.shape[0]
+        numChannels = kernelFunctions.shape[3]
+        kernelHeight = kernelFunctions.shape[1]
+        kernelWidth = kernelFunctions.shape[2]
+        if convMode == 'valid':
+            outputHeight = inputHeight - kernelHeight + 1 # For "valid" mode of convolution
+            outputWidth = inputWidth - kernelWidth + 1 # For "valid" mode of convolution
+        elif convMode == 'full':
+            outputHeight = inputHeight + kernelHeight - 1 # For "full" mode of convolution
+            outputWidth = inputWidth + kernelWidth - 1 # For "full" mode of convolution
+
+        convOutput = np.zeros((numKernels,outputHeight,outputWidth,numDataPoints),dtype=np.float32)
+        for ele3 in range(numDataPoints):
+            for ele1 in range(numKernels):
+                for ele2 in range(numChannels):
+                    convOutput[ele1,:,:,ele3] += convolve2d(inputImage3d[ele2,:,:,ele3], kernelFunctions[ele1,:,:,ele2], mode=convMode)
+
+        return convOutput
+
+
+    def cnn_backward_convolve2d(self,inputImage3d, kernelFunctions,convMode='valid'):
+        """ Currently wirtten only for valid mode of convolution"""
+        inputHeight = inputImage3d.shape[1]
+        inputWidth = inputImage3d.shape[2]
+        numDataPoints = inputImage3d.shape[3]
+        numKernels = kernelFunctions.shape[0]
+        numChannels = kernelFunctions.shape[3]
+        kernelHeight = kernelFunctions.shape[1]
+        kernelWidth = kernelFunctions.shape[2]
+        if convMode == 'valid':
+            outputHeight = inputHeight - kernelHeight + 1 # For "valid" mode of convolution
+            outputWidth = inputWidth - kernelWidth + 1 # For "valid" mode of convolution
+        elif convMode == 'full':
+            outputHeight = inputHeight + kernelHeight - 1 # For "full" mode of convolution
+            outputWidth = inputWidth + kernelWidth - 1 # For "full" mode of convolution
+
+        convOutput = np.zeros((numChannels,outputHeight,outputWidth,numDataPoints),dtype=np.float32)
+        for ele3 in range(numDataPoints):
+            for ele1 in range(numChannels):
+                for ele2 in range(numKernels):
+                    convOutput[ele1,:,:, ele3] += convolve2d(inputImage3d[ele2,:,:,ele3], kernelFunctions[ele2,:,:,ele1], mode=convMode)
+
+        return convOutput
+
+
+    def cnn_gradient_convolve2d(self,outputLayerL, errorConvLayerLplu1,convMode='valid'):
+        """ Currently written only for valid mode of convolution"""
+
+        numChannels = outputLayerL.shape[0]
+        inputHeight = outputLayerL.shape[1]
+        inputWidth = outputLayerL.shape[2]
+        numDataPoints = outputLayerL.shape[3] # should be same as errorConvLayerLplu1.shape[3]
+        numKernels = errorConvLayerLplu1.shape[0]
+        kernelHeight = errorConvLayerLplu1.shape[1]
+        kernelWidth = errorConvLayerLplu1.shape[2]
+        if convMode == 'valid':
+            outputHeight = inputHeight - kernelHeight + 1 # For "valid" mode of convolution
+            outputWidth = inputWidth - kernelWidth + 1 # For "valid" mode of convolution
+        elif convMode == 'full':
+            outputHeight = inputHeight + kernelHeight - 1 # For "full" mode of convolution
+            outputWidth = inputWidth + kernelWidth - 1 # For "full" mode of convolution
+
+        convOutput = np.zeros((numKernels,outputHeight,outputWidth,numChannels, numDataPoints),dtype=np.float32)
+        for ele3 in range(numDataPoints):
+            for ele1 in range(numKernels):
+                for ele2 in range(numChannels):
+                    convOutput[ele1,:,:,ele2,ele3] = convolve2d(outputLayerL[ele2,:,:,ele3], errorConvLayerLplu1[ele1,:,:,ele3], mode=convMode)
+
+        return convOutput
+
+    def pooling(self,image3d, poolLayer):
+
+        numChannels, imageHeight, imageWidth, numDataPoints = image3d.shape
+        poolSize, poolStride, poolType = poolLayer
+
+        outputHeight = (imageHeight - poolSize) // poolStride + 1
+        outputWidth = (imageWidth - poolSize) // poolStride + 1
+        poolingOutput = np.zeros((numChannels, outputHeight, outputWidth, numDataPoints),dtype=np.float32)
+
+        if (poolType == 'maxpool'):
+            self.maxPoolingIndex = np.zeros((numChannels, outputHeight, outputWidth, numDataPoints),dtype=np.int32) # Required for backpropagating error for maxpool. Not required for avg pool
+            for ele1 in range(numDataPoints):
+                for ele in range(numChannels):
+                        poolingOutput[ele,:,:,ele1], self.maxPoolingIndex[ele,:,:, ele1] = self.max_pooling(image3d[ele,:,:,ele1], pool_size=poolSize, stride=poolStride)
+
+        return poolingOutput
+
+
+
+    def max_pooling(self, image, pool_size=2, stride=2):
+        """ This function borrowed from chat gpt. So verify this once"""
+        """ Log the index of maxpool as well"""
+        image_height, image_width = image.shape
+        output_height = (image_height - pool_size) // stride + 1
+        output_width = (image_width - pool_size) // stride + 1
+
+        output = np.zeros((output_height, output_width),dtype=np.float32)
+        maxInd = np.zeros((output_height, output_width),dtype=np.float32)
+        for y in range(0, output_height):
+            for x in range(0, output_width):
+                region = image[y*stride:y*stride+pool_size, x*stride:x*stride+pool_size]
+                output[y, x] = np.max(region)
+                maxInd[y, x] = np.argmax(region) # Needs to be unraveled
+
+        return output, maxInd
+
 
 
 
