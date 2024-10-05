@@ -40,7 +40,7 @@ import struct
 from array import array
 from os.path  import join
 import tensorflow as tf
-from multilayer_feedforward_nn import MLFFNeuralNetwork
+from neural_network import MLFFNeuralNetwork
 import matplotlib.pyplot as plt
 
 

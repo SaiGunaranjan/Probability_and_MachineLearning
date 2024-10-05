@@ -17,7 +17,7 @@ import pandas as pd
 from sklearn import preprocessing
 from sklearn.preprocessing import StandardScaler
 import tensorflow as tf
-from multilayer_feedforward_nn import MLFFNeuralNetwork
+from neural_network import MLFFNeuralNetwork
 import matplotlib.pyplot as plt
 import numpy as np
 

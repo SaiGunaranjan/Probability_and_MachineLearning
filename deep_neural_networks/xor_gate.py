@@ -9,7 +9,7 @@ Created on Tue Aug 20 18:09:19 2024
 regression problem using multi layered feed forward NN. I have tested using both the online and batch
 mode of gradient descent methods."""
 
-from multilayer_feedforward_nn import MLFFNeuralNetwork
+from neural_network import MLFFNeuralNetwork
 import numpy as np
 import matplotlib.pyplot as plt
 
