@@ -484,27 +484,24 @@ Link:
 
 
 
-1. Ensure size of kernel at any stage is smaller than size of input. Handle this gracefully, else it might crash
-2. Need to keep track of index during max pool operation
-3. Currently, this will support online mode of Gradient descent
-4. ita is not stored for 1st layer of dense layer. Check if this is required
+1. Ensure size of kernel at any stage is smaller than size of input. Handle this gracefully, else it might crash [Done]
+2. Need to keep track of index during max pool operation [Done]
+3. Support all mode of GD i.e online, batch, mini-batch [Done]
+4. ita is not stored for 1st layer of dense layer. Check if this is required [Done]
 5. Generating/Accessing itaLastConvLayerPostPool is not correct![Fixed]
 6. All pool layers have to be same type. Either all have to be maxpool or all have to be avg pool(for now). I'm not handling a mix of max and avg pools in this script
-7. Write a separate function for maxpool survived itaL[Not needed. ]
-8. Backpropagation for bias also needs to be done[Done]
-9. Rename outputEachConvlayer to outputEachConvlayerPostPool
-10. Implement update for weights and bias [Done]
-11. Not clear how to perform derivative of activation function (f'(ita)) for avg pooling. Especially for activation functions other than ReLU
-12. ele4 index for backwardpass_cnn. Is this looping correctly over itaConv, conVLayrs, etc?
-13. Check if the code runs when there is no dense layer at all. I think, currently, I have not made a provision to cater to zero/no dense layers. This may be required!
-14. inputShape which is currently argument to the CNN init is not defined for multile/batch mode
-15. Define what should be the shape of data i.e channels x h x w x numData? or other way round
-16. Currently not enabled for multple data points at once! This needs to enabled asap to see model accuracy/valdation, etc on the trained weight parameters
-17. Verify/validate batch and mini batch gradient descent
-18. Multiple definitions of numTrainData in mini_batch_gradient_desc and mini_batch_gradient_desc_cnn
-19. Change the trainAccuracy and ValidationAccuracy exit condition to 95%
-20. Make step size smaller and smaller as the training and validation accuracy goes beyond 90% and you wish to achieve a better accuracy
-21. Add the total time of CNN execution including training and testing
+7. Backpropagation for bias also needs to be done [Done]
+8. Rename outputEachConvlayer to outputEachConvlayerPostPool
+9. Implement update for weights and bias [Done]
+10. Not clear how to perform derivative of activation function (f'(ita)) for avg pooling. Especially for activation functions other than ReLU [Clear now!]
+11. Check if the code runs when there is no dense layer at all [Works perfectly!]
+12. Define what should be the shape of data i.e channels x h x w x numData [Done]
+13. Currently not enabled for multple data points at once! This needs to enabled asap to see model accuracy/valdation, etc on the trained weight parameters [Done]
+14. Verify/validate batch and mini batch gradient descent [Done]
+15. Multiple definitions of numTrainData in mini_batch_gradient_desc and mini_batch_gradient_desc_cnn
+16. Change the trainAccuracy and ValidationAccuracy exit condition to 95%
+17. Make step size smaller and smaller as the training and validation accuracy goes beyond 90% and you wish to achieve a better accuracy
+18. Add the total time of CNN execution including training and testing [Done]
 """
 
 class ConvolutionalNeuralNetwork():

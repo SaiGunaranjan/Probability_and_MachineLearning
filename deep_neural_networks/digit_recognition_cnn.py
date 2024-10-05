@@ -41,10 +41,9 @@ import struct
 from array import array
 from os.path  import join
 import tensorflow as tf
-# from multilayer_feedforward_nn import MLFFNeuralNetwork
-# from multilayer_feedforward_nn import ConvolutionalNeuralNetwork
 from neural_network import ConvolutionalNeuralNetwork
 import matplotlib.pyplot as plt
+import time as time
 
 
 plt.close('all')
@@ -172,6 +171,9 @@ numDataPoints = X_data.shape[3]
 numTrainingData = int(split*numDataPoints)
 trainData = X_data[:,:,:,0:numTrainingData]
 trainDataLabels = Y_data[:,0:numTrainingData]
+
+tstart = time.time()
+
 cnn.train_cnn(trainData,trainDataLabels,split=0.8)
 
 X_data = np.transpose(x_test[:,:,:,None],(3,1,2,0))/255  # numChannels x h x w x numData
@@ -184,6 +186,11 @@ testDataLabels = Y_data
 cnn.predict_cnn(testData)
 cnn.mlffnn.get_accuracy(testDataLabels, cnn.testDataPredictedLabels, printAcc=True)
 cnn.mlffnn.plot_confusion_matrix(testDataLabels, cnn.testDataPredictedLabels, classLabels)
+
+tend = time.time()
+
+timeTrainTest = (tend - tstart)/(60*60)
+print('Total time taken for training and testing = {0:.2f} hours'.format(timeTrainTest))
 
 plt.figure(2,figsize=(20,10),dpi=200)
 plt.subplot(1,2,1)
