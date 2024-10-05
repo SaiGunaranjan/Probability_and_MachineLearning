@@ -447,8 +447,42 @@ required to train the network.
 3. For an ANN, an image with cat at top left corner of image is different from an image with cat at
 bottom right of the image, so it treats it as two different outputs. Whereas, a CNN does a
 local weighting/activation and hence for a CNN, both the images are treated the same.
-
 Hence we will move to CNNS for image datasets.
+
+A typical CNN consists of convolutional layers, pooling layers, flattening of the final convolutional layer
+followed by a typical ANN layers. For the ANN part, I have reused the MLFFNeuralNetwork class.
+This script, contains both the ANN and CNN class.
+Since the CNN has convolutions (multi dimensional), the compute is on the higher side as compared to
+a simple ANN.
+
+
+Updates:
+
+23/09/2024
+1. Started the initial understanding and coding of the CNN and backpropagation
+
+02/10/2024
+1. Implemented Convolutional neural network from scratch
+
+In this script, I have implemented the Convolutional Neural Network (CNN) from scratch!
+This includes the backpropagation algorithm for CNNs. I have derived the backpropagation algorithm
+for the CNNs on papaer all by myself and then implemented the same in the code.
+The derivation is based on my understanding of the backprop for ANN from Shastry's lectures.
+I was able to extend the same for CNN backprop. And it worked in the first shot!
+You do not find the complete derivation of the backprop for CNNs anywhere. Most of the blogs or
+video tutorials just show for 1 layer with 1 channel. But, I was able to derive it completely!
+I tested the CNN on the MNIST digit database and was able to achieve a training accuracy of 93% !
+I have implemented all the flavours of Gradient descent like, stochastic gradient descent, batch,
+mini-batch.
+
+2. I will add the derivation of the back prop for CNNs into my one note as well
+
+3. The motivation for CNN backprop was from Dr. Vineeth Balasubramaniam's  course on CNNs.
+Link:
+    https://www.youtube.com/watch?v=pUCCd2-17vI&list=PLEAYkSg4uSQ0Q5Z1IYI-0g2cbD-2Rt-I6&index=33
+
+
+
 
 1. Ensure size of kernel at any stage is smaller than size of input. Handle this gracefully, else it might crash
 2. Need to keep track of index during max pool operation
