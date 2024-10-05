@@ -5,12 +5,13 @@ Created on Tue Sep  3 23:11:52 2024
 @author: Sai Gunaranjan
 """
 
-""" In this script, I have performed digit classification of MNIST dataset
-(https://www.kaggle.com/datasets/hojjatk/mnist-dataset) and achieved 90% accuracy
-on the test data. By trial and erro, I found that an ANN architecture with 1 hidden layer
-with 100 neurons and batch mode of GD with stepsize of 1e-6 is required to train the model to achive
-90% traning accuracy, validation accuracy and testing accuracy.
-Even though, I have given 10000 epochs, the model achieves 90% accuracy after about 1541 epochs.
+"""
+
+In this script, I have tested my implementation of the CNN(includinglearning through backprop)
+on the MNIST dataset. My implementation worked perfectly! I was able to achieve a training accuracy
+of 93%! I used the CNN architecture as given by far1din in his CNN video lecture.
+Link:
+https://www.youtube.com/watch?v=JboZfxUjLSk&list=PL1sQgSTcAaT7MbcLWacjsqoOQvqzMdUWg&index=1
 
 The input images are 8 bit quantized values and have values ranging from 0 to 255.
 One important aspect I learned in this exercise is that, we need to normalize the input image

@@ -439,6 +439,17 @@ class MLFFNeuralNetwork():
 
 """ Convolutional Neural Networks
 
+Need to go from ANN to CNN?
+https://www.quora.com/Why-do-we-use-CNN-when-we-already-have-ANN-with-a-fully-connected-structure
+1. Exploding number of ANN parameters/weights especially when the size of input image is very large and we have to flatten for the ANN
+2. Larger the input size, more the number of weights/parameters --> more number of examples
+required to train the network.
+3. For an ANN, an image with cat at top left corner of image is different from an image with cat at
+bottom right of the image, so it treats it as two different outputs. Whereas, a CNN does a
+local weighting/activation and hence for a CNN, both the images are treated the same.
+
+Hence we will move to CNNS for image datasets.
+
 1. Ensure size of kernel at any stage is smaller than size of input. Handle this gracefully, else it might crash
 2. Need to keep track of index during max pool operation
 3. Currently, this will support online mode of Gradient descent
