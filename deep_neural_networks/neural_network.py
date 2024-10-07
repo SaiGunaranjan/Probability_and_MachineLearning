@@ -502,6 +502,7 @@ Link:
 16. Change the trainAccuracy and ValidationAccuracy exit condition to 95%
 17. Make step size smaller and smaller as the training and validation accuracy goes beyond 90% and you wish to achieve a better accuracy
 18. Add the total time of CNN execution including training and testing [Done]
+19. Save model and run without training
 """
 
 class ConvolutionalNeuralNetwork():

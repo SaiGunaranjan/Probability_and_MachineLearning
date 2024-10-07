@@ -183,6 +183,7 @@ Y_data = Y_data.T # [dimOneHotVector, NumberOfFeatureVectors]
 classLabels = [str(ele) for ele in range(10)]
 testData = X_data
 testDataLabels = Y_data
+numTestingData = testData.shape[3]
 cnn.predict_cnn(testData)
 cnn.mlffnn.get_accuracy(testDataLabels, cnn.testDataPredictedLabels, printAcc=True)
 cnn.mlffnn.plot_confusion_matrix(testDataLabels, cnn.testDataPredictedLabels, classLabels)
@@ -190,7 +191,7 @@ cnn.mlffnn.plot_confusion_matrix(testDataLabels, cnn.testDataPredictedLabels, cl
 tend = time.time()
 
 timeTrainTest = (tend - tstart)/(60*60)
-print('Total time taken for training and testing = {0:.2f} hours'.format(timeTrainTest))
+print('Total time taken for training {0} examples and testing {1} examples = {2:.2f} hours'.format(numTrainingData, numTestingData, timeTrainTest))
 
 plt.figure(2,figsize=(20,10),dpi=200)
 plt.subplot(1,2,1)
