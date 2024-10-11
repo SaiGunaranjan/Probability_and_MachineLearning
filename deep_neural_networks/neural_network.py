@@ -104,6 +104,10 @@ import matplotlib.pyplot as plt
 np.random.seed(0)
 from scipy.signal import convolve2d
 import time as time
+# import cupy as cp
+# from cupyx.scipy.signal import convolve2d
+# cupyx.scipy.signal.correlate2d()
+
 
 class MLFFNeuralNetwork():
 
@@ -485,25 +489,27 @@ Link:
 
 
 1. Ensure size of kernel at any stage is smaller than size of input. Handle this gracefully, else it might crash [Done]
-2. Need to keep track of index during max pool operation [Done]
-3. Support all mode of GD i.e online, batch, mini-batch [Done]
-4. ita is not stored for 1st layer of dense layer. Check if this is required [Done]
-5. Generating/Accessing itaLastConvLayerPostPool is not correct![Fixed]
-6. All pool layers have to be same type. Either all have to be maxpool or all have to be avg pool(for now). I'm not handling a mix of max and avg pools in this script
-7. Backpropagation for bias also needs to be done [Done]
-8. Rename outputEachConvlayer to outputEachConvlayerPostPool
-9. Implement update for weights and bias [Done]
-10. Not clear how to perform derivative of activation function (f'(ita)) for avg pooling. Especially for activation functions other than ReLU [Clear now!]
-11. Check if the code runs when there is no dense layer at all [Works perfectly!]
-12. Define what should be the shape of data i.e channels x h x w x numData [Done]
-13. Currently not enabled for multple data points at once! This needs to enabled asap to see model accuracy/valdation, etc on the trained weight parameters [Done]
-14. Verify/validate batch and mini batch gradient descent [Done]
-15. Multiple definitions of numTrainData in mini_batch_gradient_desc and mini_batch_gradient_desc_cnn
-16. Change the trainAccuracy and ValidationAccuracy exit condition to 95%
-17. Make step size smaller and smaller as the training and validation accuracy goes beyond 90% and you wish to achieve a better accuracy
-18. Add the total time of CNN execution including training and testing [Done]
-19. Save model and run without training
+2. All pool layers have to be same type. Either all have to be maxpool or all have to be avg pool(for now). I'm not handling a mix of max and avg pools in this script
+3. Rename outputEachConvlayer to outputEachConvlayerPostPool
+4. Not clear how to perform derivative of activation function (f'(ita)) for avg pooling. Especially for activation functions other than ReLU [Clear now!]
+5. Multiple definitions of numTrainData in mini_batch_gradient_desc and mini_batch_gradient_desc_cnn
+6. Change the trainAccuracy and ValidationAccuracy exit condition to 95%
+7. Make step size smaller and smaller as the training and validation accuracy goes beyond 90% and you wish to achieve a better accuracy
+8. Save model and run without training
+9. Support average pooling as well
+10. Understand dropout layer
+11. Undersatnd batch normalization
+12. Print the number of parameters in the model
+13. Depthwise convolution + point wise convolution has lesser number of parameter and reduces
+number of operations as compared to standard convolution. But how do we learn the parameters/backprop
+in depth-wise and point wise convolution
 """
+
+from cnn_gpu_kernels.parallelize_across_datapoints import cnn_convolve2d_gpu, cnn_backward_convolve2d_gpu, \
+    cnn_gradient_convolve2d_gpu
+
+from cnn_gpu_kernels.parallelize_across_kernels import cnn_convolve2d_parallel_ker_gpu, cnn_backward_convolve2d_parallel_chan_gpu, \
+    cnn_gradient_convolve2d_parallel_ker_gpu
 
 class ConvolutionalNeuralNetwork():
 
@@ -512,7 +518,7 @@ class ConvolutionalNeuralNetwork():
         self.inputShape = inputShape # Numchannles, l, w
         #(#filters, size of kernel(length), activation function)
         self.convLayer = convLayer # Len of this list is the number of convolutional layers
-        self.poolLayer = poolLayer # size,stride, type of pool. There will be a pooing layer for every convolutional layer.
+        self.poolLayer = poolLayer # size,stride, type of pool. There will be a pooling layer for every convolutional layer.
         #(#nodes, activation function)
         self.denseLayer = denseLayer # Len of this list indicates number of hidden layers
         self.outputLayer = outputLayer
@@ -549,6 +555,10 @@ class ConvolutionalNeuralNetwork():
         """ Dense layer weights initialization"""
         self.mlffnn = MLFFNeuralNetwork(denseLayerArchitecture)
 
+        """ Flag to run CNN on CPU or GPU"""
+        self.runCNNCPU = True
+
+
 
 
     def forwardpass_cnn(self, trainDataImage):
@@ -563,7 +573,7 @@ class ConvolutionalNeuralNetwork():
         """Input layer"""
         # ele3 = 0, # Input/1st layer is taken as a dummy convolution layer but with no convolution
         layerLminus1Output = layerLOutput
-        self.maxPoolingIndex = np.zeros(layerLOutput.shape,dtype=np.int32)
+        self.maxPoolingIndex = np.zeros(layerLOutput.shape,dtype=np.int32) # No pooling required for first output layer which is actually input layer
         self.outputEachConvlayer.append(layerLminus1Output) # Output for each layer. Stored post pooling
         self.maxPoolingIndexEachConvLayer.append(self.maxPoolingIndex)
         # ele3 is looping over the convolution layers
@@ -571,14 +581,22 @@ class ConvolutionalNeuralNetwork():
             weightMatrixLayerLminus1toL = self.kernelWeights[ele3-1]
             """ Convolution followed by pooling"""
             """ Currently written only for valid mode of convolution"""
-            itaLayerL = self.cnn_convolve2d(layerLminus1Output, weightMatrixLayerLminus1toL)
+            # t1 = time.time()
+            if (self.runCNNCPU == True):
+                itaLayerL = self.cnn_convolve2d(layerLminus1Output, weightMatrixLayerLminus1toL,convMode='valid')
+            else:
+                itaLayerL = cnn_convolve2d_gpu(layerLminus1Output, weightMatrixLayerLminus1toL,convMode='valid')
+            # t2 = time.time()
+            # print('\nTime taken for convolution layer {0} is {1:.2f} ms'.format(ele3, (t2-t1)*1000))
             itaLayerL += self.bias[ele3-1][:,None,None,None]
             activationFn = self.convLayer[ele3-1][2] # Activation function name
             layerLOutput = self.mlffnn.activation_function(itaLayerL,activationFn) # gives output of the activation function for the ita input
+            # t5 = time.time()
             """ Pooling"""
             poolLayer = self.poolLayer[ele3-1]
             layerLminus1Output = self.pooling(layerLOutput,poolLayer)
-
+            # t6 = time.time()
+            # print('\nTime taken for Pooling layer {0} is {1:.2f} ms'.format(ele3, (t6-t5)*1000))
             self.ItaConv.append(itaLayerL) # ita is not stored for input layer. It is stored for all other layers.
             self.outputEachConvlayer.append(layerLminus1Output) # Output for each layer. Stored post pooling
             self.maxPoolingIndexEachConvLayer.append(self.maxPoolingIndex)
@@ -630,7 +648,10 @@ class ConvolutionalNeuralNetwork():
             kernelWeightsLayerL = self.kernelWeights[ele4]
             """ Below convolution should be full correlation"""
             kernelWeightsLayerLFlipHeightWidth = np.flip(kernelWeightsLayerL,axis=(1,2))
-            errorLayerL = self.cnn_backward_convolve2d(errorLayerLplus1, kernelWeightsLayerLFlipHeightWidth, convMode='full')
+            if (self.runCNNCPU == True):
+                errorLayerL = self.cnn_backward_convolve2d(errorLayerLplus1, kernelWeightsLayerLFlipHeightWidth, convMode='full')
+            else:
+                errorLayerL = cnn_backward_convolve2d_gpu(errorLayerLplus1, kernelWeightsLayerLFlipHeightWidth, convMode='full')
 
             itaLayerL = self.ItaConv[ele4-1]
             activationFn = self.convLayer[ele4-1][2]
@@ -650,16 +671,28 @@ class ConvolutionalNeuralNetwork():
     def compute_forward_backward_pass_cnn(self, trainDataSample, trainDataLabel):
 
         """ Forward pass"""
+        t1 = time.time()
         self.forwardpass_cnn(trainDataSample)
+        t2 = time.time()
+        # print('Time taken for forward pass = {0:.2f} s'.format(t2-t1))
 
         """ Cost function computation"""
+        t3 = time.time()
         self.costFunctionValue = self.mlffnn.compute_loss_function(trainDataLabel)
+        t4 = time.time()
+        # print('Time taken for cost fn eval = {0:.2f} s'.format(t4-t3))
 
         """ Backward pass"""
+        t5 = time.time()
         self.backwardpass_cnn(trainDataLabel)
+        t6 = time.time()
+        # print('Time taken for backward pass = {0:.2f} s'.format(t6-t5))
 
         """ Update weights"""
+        t7 = time.time()
         self.update_weights_cnn()
+        t8 = time.time()
+        # print('Time taken for Weight update = {0:.2f} s'.format(t8-t7))
 
 
 
@@ -672,7 +705,10 @@ class ConvolutionalNeuralNetwork():
         """ Currently this dJ/dWl_ij  is computed per training sample or online mode of GD. In future, I will extend to batch and mini batch mode of GD"""
         count = -1
         for ele4 in range(self.numConvLayers-1):
-            gradientCostFnwrtKernelWeights = self.cnn_gradient_convolve2d(np.flip(self.outputEachConvlayer[ele4],axis=(1,2)), self.errorEachConvLayer[count], convMode='valid')
+            if (self.runCNNCPU == True):
+                gradientCostFnwrtKernelWeights = self.cnn_gradient_convolve2d(np.flip(self.outputEachConvlayer[ele4],axis=(1,2)), self.errorEachConvLayer[count], convMode='valid')
+            else:
+                gradientCostFnwrtKernelWeights = cnn_gradient_convolve2d_gpu(np.flip(self.outputEachConvlayer[ele4],axis=(1,2)), self.errorEachConvLayer[count], convMode='valid')
             gradientCostFnwrtKernelWeightsAllDataPoints = np.sum(gradientCostFnwrtKernelWeights,axis=-1)
             self.kernelWeights[ele4] = self.kernelWeights[ele4] - self.mlffnn.stepsize*gradientCostFnwrtKernelWeightsAllDataPoints # Gradient descent step
             gradientCostFnwrtBias = np.sum(self.errorEachConvLayer[count],axis=(1,2,3))
@@ -710,8 +746,10 @@ class ConvolutionalNeuralNetwork():
         for ele2 in arr:
             trainDataSample = self.trainData[:,:,:,ele2][:,:,:,None]
             trainDataLabel = self.trainDataLabels[:,ele2][:,None]
+            t1 = time.time()
             self.compute_forward_backward_pass_cnn(trainDataSample,trainDataLabel)
-            # print('Training example {}/{}'.format(count,numTrainData))
+            t2 = time.time()
+            # print('Training example {0}/{1}. Time taken = {2:.2f} ms'.format(count,numTrainData, (t2-t1)*1000))
             count += 1
 
         # print('Im here')
@@ -750,8 +788,10 @@ class ConvolutionalNeuralNetwork():
             else:
                 trainDataSample = trainDataShuffle[:,:,:,startIndex::]
                 trainDataLabel = trainDataLabelsShuffle[:,startIndex::]
-
+            t1 = time.time()
             self.compute_forward_backward_pass_cnn(trainDataSample,trainDataLabel)
+            t2 = time.time()
+            print('Time taken for batch {0}/{1} is {2:.2f} s'.format(ele+1,numBatches,(t2-t1)))
 
             startIndex += self.mlffnn.batchsize
 
@@ -780,6 +820,7 @@ class ConvolutionalNeuralNetwork():
 
     def backpropagation_cnn(self):
 
+        flagStepSizeChange = 1
         self.trainingLossArray = []
         self.validationLossArray = []
         for ele1 in np.arange(self.mlffnn.epochs):
@@ -799,7 +840,12 @@ class ConvolutionalNeuralNetwork():
             if (self.validationData.shape[-1] != 0): # There is some validation data to test model
                 print('\nEpoch: {0}/{1}'.format(ele1+1, self.mlffnn.epochs))
                 print('train_loss: {0:.1f}, val_loss: {1:.1f}, train_accuracy: {2:.1f}, val_accuracy: {3:.1f}'.format(self.trainingLoss, self.validationLoss, self.trainAccuracy, self.validationAccuracy))
-                if ((self.trainAccuracy > 92) and (self.validationAccuracy > 92)):
+
+                # if ((self.trainAccuracy > 90) and (self.validationAccuracy > 90) and (flagStepSizeChange == 1)):
+                #     self.mlffnn.stepsize = self.mlffnn.stepsize/10 # Make step size smaller when achieving higher accuracy > 90%
+                #     flagStepSizeChange = 0
+
+                if ((self.trainAccuracy > 91) and (self.validationAccuracy > 91)):
                     break
             else: # There is no validation data to test model
                 print('Epoch: {0}/{1}, train_loss: {2:.1f}'.format(ele1+1, self.epochs, self.trainingLoss))
@@ -869,7 +915,9 @@ class ConvolutionalNeuralNetwork():
                 for ele2 in range(numChannels):
                     convOutput[ele1,:,:,ele3] += convolve2d(inputImage3d[ele2,:,:,ele3], kernelFunctions[ele1,:,:,ele2], mode=convMode)
 
+
         return convOutput
+
 
 
     def cnn_backward_convolve2d(self,inputImage3d, kernelFunctions,convMode='valid'):
@@ -894,7 +942,10 @@ class ConvolutionalNeuralNetwork():
                 for ele2 in range(numKernels):
                     convOutput[ele1,:,:, ele3] += convolve2d(inputImage3d[ele2,:,:,ele3], kernelFunctions[ele2,:,:,ele1], mode=convMode)
 
+
         return convOutput
+
+
 
 
     def cnn_gradient_convolve2d(self,outputLayerL, errorConvLayerLplu1,convMode='valid'):
@@ -921,6 +972,11 @@ class ConvolutionalNeuralNetwork():
                     convOutput[ele1,:,:,ele2,ele3] = convolve2d(outputLayerL[ele2,:,:,ele3], errorConvLayerLplu1[ele1,:,:,ele3], mode=convMode)
 
         return convOutput
+
+
+
+
+
 
     def pooling(self,image3d, poolLayer):
 
@@ -957,13 +1013,4 @@ class ConvolutionalNeuralNetwork():
                 maxInd[y, x] = np.argmax(region) # Needs to be unraveled
 
         return output, maxInd
-
-
-
-
-
-
-
-
-
 
