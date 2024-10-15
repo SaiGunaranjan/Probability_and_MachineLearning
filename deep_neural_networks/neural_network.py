@@ -516,7 +516,7 @@ in depth-wise and point wise convolution
 """
 
 from cnn_gpu_kernels.parallelize_across_datapoints import cnn_convolve2d_gpu, cnn_backward_convolve2d_gpu, \
-    cnn_gradient_convolve2d_gpu, pooling_gpu
+    cnn_gradient_convolve2d_gpu, pooling_gpu, backprop_poollayer_gpu
 
 from cnn_gpu_kernels.parallelize_across_kernels import cnn_convolve2d_parallel_ker_gpu, cnn_backward_convolve2d_parallel_chan_gpu, \
     cnn_gradient_convolve2d_parallel_ker_gpu, pooling_gpu_parallel_ker
@@ -568,7 +568,7 @@ class ConvolutionalNeuralNetwork():
         """ Flag to run CNN on CPU or GPU"""
         self.runCNNCPU = False # True to run on CPU and False to run on GPU
         if (self.runCNNCPU == False):
-            self.parallelizeAcrossData = False#True # True for GPU parallelization across data and false for parallelization across channels/kernels
+            self.parallelizeAcrossData = True # True for GPU parallelization across data and false for parallelization across channels/kernels
             # Always try to run parallelization across data first. Time taken by parallelization across kernels is much larger
 
 
@@ -593,7 +593,7 @@ class ConvolutionalNeuralNetwork():
             weightMatrixLayerLminus1toL = self.kernelWeights[ele3-1]
             """ Convolution followed by pooling"""
             """ Currently written only for valid mode of convolution"""
-            # t1 = time.time()
+            t1 = time.time()
             if (self.runCNNCPU == True):
                 itaLayerL = self.cnn_convolve2d(layerLminus1Output, weightMatrixLayerLminus1toL,convMode='valid')
             else:
@@ -601,12 +601,12 @@ class ConvolutionalNeuralNetwork():
                     itaLayerL = cnn_convolve2d_gpu(layerLminus1Output, weightMatrixLayerLminus1toL,convMode='valid')
                 else:
                     itaLayerL = cnn_convolve2d_parallel_ker_gpu(layerLminus1Output, weightMatrixLayerLminus1toL,convMode='valid')
-            # t2 = time.time()
-            # print('\nTime taken for convolution layer {0} is {1:.2f} ms'.format(ele3, (t2-t1)*1000))
+            t2 = time.time()
+            # print('\n\tTime taken for forward pass convolution layer {0} is {1:.2f} ms'.format(ele3, (t2-t1)*1000))
             itaLayerL += self.bias[ele3-1][:,None,None,None]
             activationFn = self.convLayer[ele3-1][2] # Activation function name
             layerLOutput = self.mlffnn.activation_function(itaLayerL,activationFn) # gives output of the activation function for the ita input
-            # t5 = time.time()
+            t5 = time.time()
             """ Pooling"""
             poolLayer = self.poolLayer[ele3-1]
             if (self.runCNNCPU == True):
@@ -616,8 +616,8 @@ class ConvolutionalNeuralNetwork():
                     layerLminus1Output, self.maxPoolingIndex = pooling_gpu(layerLOutput,poolLayer)
                 else:
                     layerLminus1Output, self.maxPoolingIndex = pooling_gpu_parallel_ker(layerLOutput,poolLayer)
-            # t6 = time.time()
-            # print('\nTime taken for Pooling layer {0} is {1:.2f} ms'.format(ele3, (t6-t5)*1000))
+            t6 = time.time()
+            # print('\n\tTime taken for forward pass Pooling layer {0} is {1:.2f} ms'.format(ele3, (t6-t5)*1000))
             self.ItaConv.append(itaLayerL) # ita is not stored for input layer. It is stored for all other layers.
             self.outputEachConvlayer.append(layerLminus1Output) # Output for each layer. Stored post pooling
             self.maxPoolingIndexEachConvLayer.append(self.maxPoolingIndex)
@@ -655,7 +655,10 @@ class ConvolutionalNeuralNetwork():
         shapeLayerLPrePooling = self.ItaConv[-1].shape
         poolProperties = self.poolLayer[-1]
         poolInds = self.maxPoolingIndexEachConvLayer[-1]
-        errorLastConvLayerPrePool = self.backprop_poollayer(errorLastConvLayerPostPool, poolInds, poolProperties, shapeLayerLPrePooling)
+        if (self.runCNNCPU == True):
+            errorLastConvLayerPrePool = self.backprop_poollayer(errorLastConvLayerPostPool, poolInds, poolProperties, shapeLayerLPrePooling)
+        else:
+            errorLastConvLayerPrePool = backprop_poollayer_gpu(errorLastConvLayerPostPool, poolInds, poolProperties, shapeLayerLPrePooling)
 
         """ First backpropagate error from pooling layer and then multiply with derivative of activation function"""
         itaLayerL = self.ItaConv[-1]
@@ -667,6 +670,7 @@ class ConvolutionalNeuralNetwork():
         # ele4 loop goes from layer L-1(output) to layer 0 input
         for ele4 in range(self.numConvLayers-1,0,-1):
             kernelWeightsLayerL = self.kernelWeights[ele4]
+            t7 = time.time()
             """ Below convolution should be full correlation"""
             kernelWeightsLayerLFlipHeightWidth = np.flip(kernelWeightsLayerL,axis=(1,2))
             if (self.runCNNCPU == True):
@@ -676,7 +680,8 @@ class ConvolutionalNeuralNetwork():
                     errorLayerL = cnn_backward_convolve2d_gpu(errorLayerLplus1, kernelWeightsLayerLFlipHeightWidth, convMode='full')
                 else:
                     errorLayerL = cnn_backward_convolve2d_parallel_chan_gpu(errorLayerLplus1, kernelWeightsLayerLFlipHeightWidth, convMode='full')
-
+            t8 = time.time()
+            # print('\n\tTime taken for backward pass convolution layer {0} is {1:.2f} ms'.format(ele4, (t8-t7)*1000))
             itaLayerL = self.ItaConv[ele4-1]
             activationFn = self.convLayer[ele4-1][2]
             activationFnDerivative = self.mlffnn.derivative_activation_function(itaLayerL,activationFn)
@@ -684,7 +689,13 @@ class ConvolutionalNeuralNetwork():
             shapeLayerLPrePooling = itaLayerL.shape
             poolProperties = self.poolLayer[ele4-1]
             poolInds = self.maxPoolingIndexEachConvLayer[ele4]#self.maxPoolingIndexEachConvLayer[ele4-1]
-            errorLayerLPrePool = self.backprop_poollayer(errorLayerL, poolInds, poolProperties, shapeLayerLPrePooling)
+            t9 = time.time()
+            if (self.runCNNCPU == True):
+                errorLayerLPrePool = self.backprop_poollayer(errorLayerL, poolInds, poolProperties, shapeLayerLPrePooling)
+            else:
+                errorLayerLPrePool = backprop_poollayer_gpu(errorLayerL, poolInds, poolProperties, shapeLayerLPrePooling)
+            t10 = time.time()
+            # print('\n\tTime taken for backward pass Pooling layer {0} is {1:.2f} ms'.format(ele4, (t10-t9)*1000))
             errorLayerLplus1 = errorLayerLPrePool * activationFnDerivative
 
             self.errorEachConvLayer.append(errorLayerLplus1) # These error arrays are packed from layer L-1 down to 1 and not from 1 to L-1. They are arranged in reverse order. (layers start from 0 to L-1)
@@ -909,12 +920,10 @@ class ConvolutionalNeuralNetwork():
             for ele in range(errorGradientnumChannels):
                 for y in range(0, errorGradientsHeight):
                     for x in range(0, errorGradientsWidth):
-                        region = (errorGradientsPrePool[ele,y*poolStride:y*poolStride+poolSize, x*poolStride:x*poolStride+poolSize, ele1]).copy()
                         ind = poolInds[ele,y,x, ele1]
                         ind2d = np.unravel_index(ind,(poolSize,poolSize))
-                        region[ind2d] = errorGradients[ele,y,x, ele1]
-                        errorGradientsPrePool[ele,y*poolStride:y*poolStride+poolSize,
-                                              x*poolStride:x*poolStride+poolSize, ele1] = region
+                        errorGradientsPrePool[ele,y*poolStride+ind2d[0],
+                                              x*poolStride+ind2d[1], ele1] = errorGradients[ele,y,x, ele1]
 
 
         return errorGradientsPrePool

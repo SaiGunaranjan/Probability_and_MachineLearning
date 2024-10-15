@@ -8,8 +8,8 @@ Created on Fri Oct 11 23:56:34 2024
 import numpy as np
 import cupy as cp
 from numba import cuda
-from cnn_gpu_kernels.device_functions import convolution_2d_valid, convolution_2d_full, max_pooling_devfunc
-# from device_functions import convolution_2d_valid, convolution_2d_full, max_pooling_devfunc
+from cnn_gpu_kernels.device_functions import convolution_2d_valid, convolution_2d_full, max_pooling_devfunc, unravel_index
+# from device_functions import convolution_2d_valid, convolution_2d_full, max_pooling_devfunc, unravel_index
 
 
 
@@ -147,6 +147,50 @@ def pooling_gpu(image3d, poolLayer):
     maxPoolingIndex = cp.asnumpy(maxPoolingIndex)
 
     return poolingOutput, maxPoolingIndex
+
+
+
+def backprop_poollayer_gpu(errorGradients, poolInds, poolProperties, shapeLayerLPrePooling):
+
+
+    poolSize, poolStride, poolType = poolProperties
+    numDataPoints = errorGradients.shape[3]
+    """ Right now coded for only max pool. Will extend to avg pool as well"""
+    errorGradientsPrePool = cp.zeros(shapeLayerLPrePooling,dtype=cp.float32)
+    errorGradients = cp.asarray(errorGradients,dtype=cp.float32)
+    poolInds = cp.asarray(poolInds,dtype=cp.int32)
+
+
+    thrdPerBlock = 32#4
+    blkPerGrid = int(cp.ceil(numDataPoints/thrdPerBlock))
+    backprop_poollayer_gpu_kernel[blkPerGrid,thrdPerBlock](errorGradients, poolInds, errorGradientsPrePool, poolSize, poolStride)
+
+    errorGradientsPrePool = cp.asnumpy(errorGradientsPrePool)
+
+    return errorGradientsPrePool
+
+
+
+@cuda.jit('void(float32[:,:,:,:], int32[:,:,:,:], float32[:,:,:,:], int32, int32)')
+def backprop_poollayer_gpu_kernel(errorGradients, poolInds, errorGradientsPrePool, poolSize, poolStride):
+
+    thrdIDx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+
+    errorGradientnumChannels = errorGradients.shape[0]
+    errorGradientsHeight = errorGradients.shape[1]
+    errorGradientsWidth = errorGradients.shape[2]
+    numDataPoints = errorGradients.shape[3]
+
+    if ((thrdIDx < 0) or (thrdIDx >= numDataPoints)):
+        return;
+
+    for ele in range(errorGradientnumChannels):
+        for y in range(0, errorGradientsHeight):
+            for x in range(0, errorGradientsWidth):
+                ind = poolInds[ele,y,x, thrdIDx]
+                ind2d = unravel_index(ind,poolSize,poolSize)
+                errorGradientsPrePool[ele,y*poolStride+ind2d[0],
+                                      x*poolStride+ind2d[1], thrdIDx] = errorGradients[ele,y,x, thrdIDx]
 
 
 

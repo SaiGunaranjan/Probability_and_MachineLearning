@@ -125,3 +125,11 @@ def max_pooling_devfunc(image, pool_size, stride, output, maxInd):
             region = image[y*stride:y*stride+pool_size, x*stride:x*stride+pool_size]
             output[y, x] = max_val(region)
             maxInd[y, x] = argmax(region) # Needs to be unraveled
+
+
+@cuda.jit(device=True)
+def unravel_index(linear_index, num_rows, num_cols):
+    # Calculate the row and column using integer division and modulo
+    row = linear_index // num_cols
+    col = linear_index % num_cols
+    return (row, col)
