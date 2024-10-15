@@ -8,7 +8,7 @@ Created on Fri Oct 11 23:56:34 2024
 import numpy as np
 import cupy as cp
 from numba import cuda
-from cnn_gpu_kernels.device_functions import convolution_2d_valid, convolution_2d_full
+from cnn_gpu_kernels.device_functions import convolution_2d_valid, convolution_2d_full, max_pooling_devfunc
 
 
 
@@ -120,6 +120,45 @@ def cnn_gradient_convolve2d_parallel_ker_gpu(outputLayerL, errorConvLayerLplu1,c
     convOutput = cp.asnumpy(convOutput)
 
     return convOutput
+
+
+def pooling_gpu_parallel_ker(image3d, poolLayer):
+
+    numChannels, imageHeight, imageWidth, numDataPoints = image3d.shape
+    poolSize, poolStride, poolType = poolLayer
+
+    outputHeight = (imageHeight - poolSize) // poolStride + 1
+    outputWidth = (imageWidth - poolSize) // poolStride + 1
+    poolingOutput = cp.zeros((numChannels, outputHeight, outputWidth, numDataPoints),dtype=cp.float32)
+    maxPoolingIndex = cp.zeros((numChannels, outputHeight, outputWidth, numDataPoints),dtype=cp.int32) # Required for backpropagating error for maxpool. Not required for avg pool
+
+    image3d = cp.asarray(image3d,dtype=cp.float32)
+
+    thrdPerBlock = 32
+    blkPerGrid = int(cp.ceil(numChannels/thrdPerBlock))
+
+    if (poolType == 'maxpool'):
+        max_pooling_gpu_kernel_parallel_ker[blkPerGrid,thrdPerBlock](image3d,numChannels,numDataPoints,poolSize,poolStride,poolingOutput,maxPoolingIndex)
+
+    poolingOutput = cp.asnumpy(poolingOutput)
+    maxPoolingIndex = cp.asnumpy(maxPoolingIndex)
+
+    return poolingOutput, maxPoolingIndex
+
+
+
+""" Parallelize across channels/kernels"""
+@cuda.jit('void(float32[:,:,:,:],int32,int32,int32,int32,float32[:,:,:,:],int32[:,:,:,:])')
+def max_pooling_gpu_kernel_parallel_ker(image3d,numChannels,numDataPoints,poolSize,poolStride,poolingOutput,maxPoolingIndex):
+
+
+    thrdIDx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+
+    if ((thrdIDx < 0) or (thrdIDx >= numChannels)):
+        return;
+
+    for ele in range(numDataPoints):
+            max_pooling_devfunc(image3d[thrdIDx,:,:,ele], poolSize, poolStride, poolingOutput[thrdIDx,:,:,ele], maxPoolingIndex[thrdIDx,:,:, ele])
 
 
 

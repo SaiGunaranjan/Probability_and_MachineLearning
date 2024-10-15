@@ -486,6 +486,10 @@ Link:
     https://www.youtube.com/watch?v=pUCCd2-17vI&list=PLEAYkSg4uSQ0Q5Z1IYI-0g2cbD-2Rt-I6&index=33
 
 
+Good reference docs for GPU parallelization:
+    https://numba.pydata.org/numba-doc/0.13/CUDAJit.html
+
+    https://numba.readthedocs.io/en/stable/cuda/index.html
 
 
 1. Ensure size of kernel at any stage is smaller than size of input. Handle this gracefully, else it might crash [Done]
@@ -498,18 +502,24 @@ Link:
 8. Save model and run without training
 9. Support average pooling as well
 10. Understand dropout layer
-11. Undersatnd batch normalization
+11. Understand batch normalization
 12. Print the number of parameters in the model
 13. Depthwise convolution + point wise convolution has lesser number of parameter and reduces
 number of operations as compared to standard convolution. But how do we learn the parameters/backprop
 in depth-wise and point wise convolution
+14. Threads per block, blocks per grid are not correctly optimized. This needs tweaking to get optimal GPU utilization/performance
+15. Parallelization across data is much faster than parallelization across kernels especially when number of kernels in each layer is small like MNIST CNN dataset
+16. Parallelize maxpooling.[Done]
+17. backprop_poollayer/reverse pooling also has to be converted to a kernel. Eventually make everything on GPU
+18. Parallelization across kernels not completely tested (includes convolution and pooling)
+19. When data is large, use parallelization across data and if data is small then use parallelization across kernels
 """
 
 from cnn_gpu_kernels.parallelize_across_datapoints import cnn_convolve2d_gpu, cnn_backward_convolve2d_gpu, \
-    cnn_gradient_convolve2d_gpu
+    cnn_gradient_convolve2d_gpu, pooling_gpu
 
 from cnn_gpu_kernels.parallelize_across_kernels import cnn_convolve2d_parallel_ker_gpu, cnn_backward_convolve2d_parallel_chan_gpu, \
-    cnn_gradient_convolve2d_parallel_ker_gpu
+    cnn_gradient_convolve2d_parallel_ker_gpu, pooling_gpu_parallel_ker
 
 class ConvolutionalNeuralNetwork():
 
@@ -556,8 +566,10 @@ class ConvolutionalNeuralNetwork():
         self.mlffnn = MLFFNeuralNetwork(denseLayerArchitecture)
 
         """ Flag to run CNN on CPU or GPU"""
-        self.runCNNCPU = True
-
+        self.runCNNCPU = False # True to run on CPU and False to run on GPU
+        if (self.runCNNCPU == False):
+            self.parallelizeAcrossData = False#True # True for GPU parallelization across data and false for parallelization across channels/kernels
+            # Always try to run parallelization across data first. Time taken by parallelization across kernels is much larger
 
 
 
@@ -585,7 +597,10 @@ class ConvolutionalNeuralNetwork():
             if (self.runCNNCPU == True):
                 itaLayerL = self.cnn_convolve2d(layerLminus1Output, weightMatrixLayerLminus1toL,convMode='valid')
             else:
-                itaLayerL = cnn_convolve2d_gpu(layerLminus1Output, weightMatrixLayerLminus1toL,convMode='valid')
+                if (self.parallelizeAcrossData == True):
+                    itaLayerL = cnn_convolve2d_gpu(layerLminus1Output, weightMatrixLayerLminus1toL,convMode='valid')
+                else:
+                    itaLayerL = cnn_convolve2d_parallel_ker_gpu(layerLminus1Output, weightMatrixLayerLminus1toL,convMode='valid')
             # t2 = time.time()
             # print('\nTime taken for convolution layer {0} is {1:.2f} ms'.format(ele3, (t2-t1)*1000))
             itaLayerL += self.bias[ele3-1][:,None,None,None]
@@ -594,7 +609,13 @@ class ConvolutionalNeuralNetwork():
             # t5 = time.time()
             """ Pooling"""
             poolLayer = self.poolLayer[ele3-1]
-            layerLminus1Output = self.pooling(layerLOutput,poolLayer)
+            if (self.runCNNCPU == True):
+                layerLminus1Output = self.pooling(layerLOutput,poolLayer)
+            else:
+                if (self.parallelizeAcrossData == True):
+                    layerLminus1Output, self.maxPoolingIndex = pooling_gpu(layerLOutput,poolLayer)
+                else:
+                    layerLminus1Output, self.maxPoolingIndex = pooling_gpu_parallel_ker(layerLOutput,poolLayer)
             # t6 = time.time()
             # print('\nTime taken for Pooling layer {0} is {1:.2f} ms'.format(ele3, (t6-t5)*1000))
             self.ItaConv.append(itaLayerL) # ita is not stored for input layer. It is stored for all other layers.
@@ -651,7 +672,10 @@ class ConvolutionalNeuralNetwork():
             if (self.runCNNCPU == True):
                 errorLayerL = self.cnn_backward_convolve2d(errorLayerLplus1, kernelWeightsLayerLFlipHeightWidth, convMode='full')
             else:
-                errorLayerL = cnn_backward_convolve2d_gpu(errorLayerLplus1, kernelWeightsLayerLFlipHeightWidth, convMode='full')
+                if (self.parallelizeAcrossData == True):
+                    errorLayerL = cnn_backward_convolve2d_gpu(errorLayerLplus1, kernelWeightsLayerLFlipHeightWidth, convMode='full')
+                else:
+                    errorLayerL = cnn_backward_convolve2d_parallel_chan_gpu(errorLayerLplus1, kernelWeightsLayerLFlipHeightWidth, convMode='full')
 
             itaLayerL = self.ItaConv[ele4-1]
             activationFn = self.convLayer[ele4-1][2]
@@ -708,7 +732,11 @@ class ConvolutionalNeuralNetwork():
             if (self.runCNNCPU == True):
                 gradientCostFnwrtKernelWeights = self.cnn_gradient_convolve2d(np.flip(self.outputEachConvlayer[ele4],axis=(1,2)), self.errorEachConvLayer[count], convMode='valid')
             else:
-                gradientCostFnwrtKernelWeights = cnn_gradient_convolve2d_gpu(np.flip(self.outputEachConvlayer[ele4],axis=(1,2)), self.errorEachConvLayer[count], convMode='valid')
+                if (self.parallelizeAcrossData == True):
+                    gradientCostFnwrtKernelWeights = cnn_gradient_convolve2d_gpu(np.flip(self.outputEachConvlayer[ele4],axis=(1,2)), self.errorEachConvLayer[count], convMode='valid')
+                else:
+                    gradientCostFnwrtKernelWeights = cnn_gradient_convolve2d_parallel_ker_gpu(np.flip(self.outputEachConvlayer[ele4],axis=(1,2)), self.errorEachConvLayer[count], convMode='valid')
+
             gradientCostFnwrtKernelWeightsAllDataPoints = np.sum(gradientCostFnwrtKernelWeights,axis=-1)
             self.kernelWeights[ele4] = self.kernelWeights[ele4] - self.mlffnn.stepsize*gradientCostFnwrtKernelWeightsAllDataPoints # Gradient descent step
             gradientCostFnwrtBias = np.sum(self.errorEachConvLayer[count],axis=(1,2,3))
@@ -1005,7 +1033,7 @@ class ConvolutionalNeuralNetwork():
         output_width = (image_width - pool_size) // stride + 1
 
         output = np.zeros((output_height, output_width),dtype=np.float32)
-        maxInd = np.zeros((output_height, output_width),dtype=np.float32)
+        maxInd = np.zeros((output_height, output_width),dtype=np.int32)
         for y in range(0, output_height):
             for x in range(0, output_width):
                 region = image[y*stride:y*stride+pool_size, x*stride:x*stride+pool_size]

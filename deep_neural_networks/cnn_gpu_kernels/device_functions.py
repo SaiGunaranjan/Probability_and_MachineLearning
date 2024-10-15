@@ -71,3 +71,57 @@ def convolution_2d_full(input_matrix, kernel, result, padded_input):
 
     # Call the 'valid' convolution on the padded input
     convolution_2d_valid(padded_input, kernel, result)
+
+
+@cuda.jit(device=True)
+def max_val(array):
+    max_value = float('-inf')  # Start with the smallest possible number
+
+    height, width = array.shape
+
+    # Iterate through the 2D array row by row
+    for i in range(height):
+        for j in range(width):
+            # If the current element is greater than the current max, update max
+            if array[i,j] > max_value:
+                max_value = array[i,j]
+
+    return max_value
+
+
+@cuda.jit(device=True)
+def argmax(array):
+    max_value = float('-inf')  # Start with the smallest possible number
+    max_index = -1  # To store the traveled index of the maximum element
+    flattened_index = 0  # To keep track of the traveled (flattened) index
+
+    height, width = array.shape
+
+    # Iterate through the 2D array row by row
+    for i in range(height):
+        for j in range(width):
+            # If the current element is greater than the current max, update max and index
+            if array[i,j] > max_value:
+                max_value = array[i,j]
+                max_index = flattened_index
+
+            # Increment traveled index after each element
+            flattened_index += 1
+
+    return max_index
+
+
+
+@cuda.jit(device=True)
+def max_pooling_devfunc(image, pool_size, stride, output, maxInd):
+    """ This function borrowed from chat gpt. So verify this once"""
+    """ Log the index of maxpool as well"""
+    image_height, image_width = image.shape
+    output_height = (image_height - pool_size) // stride + 1
+    output_width = (image_width - pool_size) // stride + 1
+
+    for y in range(0, output_height):
+        for x in range(0, output_width):
+            region = image[y*stride:y*stride+pool_size, x*stride:x*stride+pool_size]
+            output[y, x] = max_val(region)
+            maxInd[y, x] = argmax(region) # Needs to be unraveled
