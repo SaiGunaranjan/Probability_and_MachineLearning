@@ -188,7 +188,7 @@ def backprop_poollayer_gpu_kernel(errorGradients, poolInds, errorGradientsPrePoo
         for y in range(0, errorGradientsHeight):
             for x in range(0, errorGradientsWidth):
                 ind = poolInds[ele,y,x, thrdIDx]
-                ind2d = unravel_index(ind,poolSize,poolSize)
+                ind2d = unravel_index(ind,poolSize,poolSize) # Returns a tuple
                 errorGradientsPrePool[ele,y*poolStride+ind2d[0],
                                       x*poolStride+ind2d[1], thrdIDx] = errorGradients[ele,y,x, thrdIDx]
 
