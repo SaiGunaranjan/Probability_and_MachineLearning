@@ -8,7 +8,8 @@ Created on Fri Oct 11 23:56:34 2024
 import numpy as np
 import cupy as cp
 from numba import cuda
-from cnn_gpu_kernels.device_functions import convolution_2d_valid, convolution_2d_full, max_pooling_devfunc
+from cnn_gpu_kernels.device_functions import convolution_2d_valid, convolution_2d_full, max_pooling_devfunc, unravel_index
+# from device_functions import convolution_2d_valid, convolution_2d_full, max_pooling_devfunc, unravel_index
 
 
 
@@ -33,7 +34,7 @@ def cnn_convolve2d_parallel_ker_gpu(inputImage3d, kernelFunctions,convMode='vali
 
 
     convOutput = cp.zeros((numKernels,outputHeight,outputWidth,numDataPoints),dtype=cp.float32)
-    thrdPerBlock = 4
+    thrdPerBlock = 32
     blkPerGrid = int(cp.ceil(numKernels/thrdPerBlock))
     inputImage3d = cp.asarray(inputImage3d,dtype=cp.float32)
     kernelFunctions = cp.asarray(kernelFunctions,dtype=cp.float32)
@@ -69,7 +70,7 @@ def cnn_backward_convolve2d_parallel_chan_gpu(inputImage3d, kernelFunctions,conv
         convType = np.int32(1)
 
     convOutput = cp.zeros((numChannels,outputHeight,outputWidth,numDataPoints),dtype=cp.float32)
-    thrdPerBlock = 4
+    thrdPerBlock = 32
     blkPerGrid = int(cp.ceil(numChannels/thrdPerBlock))
     inputImage3d = cp.asarray(inputImage3d,dtype=cp.float32)
     kernelFunctions = cp.asarray(kernelFunctions,dtype=cp.float32)
@@ -107,7 +108,7 @@ def cnn_gradient_convolve2d_parallel_ker_gpu(outputLayerL, errorConvLayerLplu1,c
 
 
     convOutput = cp.zeros((numKernels,outputHeight,outputWidth,numChannels, numDataPoints),dtype=cp.float32)
-    thrdPerBlock = 4
+    thrdPerBlock = 32
     blkPerGrid = int(cp.ceil(numKernels/thrdPerBlock))
     outputLayerL = cp.asarray(outputLayerL,dtype=cp.float32)
     errorConvLayerLplu1 = cp.asarray(errorConvLayerLplu1,dtype=cp.float32)
@@ -144,6 +145,52 @@ def pooling_gpu_parallel_ker(image3d, poolLayer):
     maxPoolingIndex = cp.asnumpy(maxPoolingIndex)
 
     return poolingOutput, maxPoolingIndex
+
+
+
+def backprop_poollayer_gpu_parallel_ker(errorGradients, poolInds, poolProperties, shapeLayerLPrePooling):
+
+
+    poolSize, poolStride, poolType = poolProperties
+    # numDataPoints = errorGradients.shape[3]
+    errorGradientnumChannels = errorGradients.shape[0]
+    """ Right now coded for only max pool. Will extend to avg pool as well"""
+    errorGradientsPrePool = cp.zeros(shapeLayerLPrePooling,dtype=cp.float32)
+    errorGradients = cp.asarray(errorGradients,dtype=cp.float32)
+    poolInds = cp.asarray(poolInds,dtype=cp.int32)
+
+
+    thrdPerBlock = 32#4
+    blkPerGrid = int(cp.ceil(errorGradientnumChannels/thrdPerBlock))
+    backprop_poollayer_gpu_kernel_parallel_ker[blkPerGrid,thrdPerBlock](errorGradients, poolInds, errorGradientsPrePool, poolSize, poolStride)
+
+    errorGradientsPrePool = cp.asnumpy(errorGradientsPrePool)
+
+    return errorGradientsPrePool
+
+
+
+
+@cuda.jit('void(float32[:,:,:,:], int32[:,:,:,:], float32[:,:,:,:], int32, int32)')
+def backprop_poollayer_gpu_kernel_parallel_ker(errorGradients, poolInds, errorGradientsPrePool, poolSize, poolStride):
+
+    thrdIDx = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+
+    errorGradientnumChannels = errorGradients.shape[0]
+    errorGradientsHeight = errorGradients.shape[1]
+    errorGradientsWidth = errorGradients.shape[2]
+    numDataPoints = errorGradients.shape[3]
+
+    if ((thrdIDx < 0) or (thrdIDx >= errorGradientnumChannels)):
+        return;
+
+    for ele1 in range(numDataPoints):
+        for y in range(0, errorGradientsHeight):
+            for x in range(0, errorGradientsWidth):
+                ind = poolInds[thrdIDx,y,x, ele1]
+                ind2d = unravel_index(ind,poolSize,poolSize) # Returns a tuple
+                errorGradientsPrePool[thrdIDx,y*poolStride+ind2d[0],
+                                      x*poolStride+ind2d[1], ele1] = errorGradients[thrdIDx,y,x, ele1]
 
 
 

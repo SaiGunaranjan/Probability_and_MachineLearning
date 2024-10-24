@@ -107,7 +107,7 @@ import time as time
 # import cupy as cp
 # from cupyx.scipy.signal import convolve2d
 # cupyx.scipy.signal.correlate2d()
-
+# import sys
 
 class MLFFNeuralNetwork():
 
@@ -510,16 +510,17 @@ in depth-wise and point wise convolution
 14. Threads per block, blocks per grid are not correctly optimized. This needs tweaking to get optimal GPU utilization/performance
 15. Parallelization across data is much faster than parallelization across kernels especially when number of kernels in each layer is small like MNIST CNN dataset
 16. Parallelize maxpooling.[Done]
-17. backprop_poollayer/reverse pooling also has to be converted to a kernel. Eventually make everything on GPU
-18. Parallelization across kernels not completely tested (includes convolution and pooling)
+17. backprop_poollayer/reverse pooling also has to be converted to a kernel. Eventually make everything on GPU[Done]
+18. Parallelization across kernels not completely tested[Done]
 19. When data is large, use parallelization across data and if data is small then use parallelization across kernels
+20. Print size of memory moved to GPU kernel
 """
 
 from cnn_gpu_kernels.parallelize_across_datapoints import cnn_convolve2d_gpu, cnn_backward_convolve2d_gpu, \
     cnn_gradient_convolve2d_gpu, pooling_gpu, backprop_poollayer_gpu
 
 from cnn_gpu_kernels.parallelize_across_kernels import cnn_convolve2d_parallel_ker_gpu, cnn_backward_convolve2d_parallel_chan_gpu, \
-    cnn_gradient_convolve2d_parallel_ker_gpu, pooling_gpu_parallel_ker
+    cnn_gradient_convolve2d_parallel_ker_gpu, pooling_gpu_parallel_ker, backprop_poollayer_gpu_parallel_ker
 
 class ConvolutionalNeuralNetwork():
 
@@ -568,8 +569,10 @@ class ConvolutionalNeuralNetwork():
         """ Flag to run CNN on CPU or GPU"""
         self.runCNNCPU = False # True to run on CPU and False to run on GPU
         if (self.runCNNCPU == False):
-            self.parallelizeAcrossData = True # True for GPU parallelization across data and false for parallelization across channels/kernels
+            self.parallelizeAcrossData = False#True # True for GPU parallelization across data and false for parallelization across channels/kernels
             # Always try to run parallelization across data first. Time taken by parallelization across kernels is much larger
+            # If batch size is much larger than number of channels/kernels, then use parallelize across data, else if number of kernels is larger
+            # than batch size like in stochastic gradient descent, use parallelize across kernels
 
 
 
@@ -658,7 +661,12 @@ class ConvolutionalNeuralNetwork():
         if (self.runCNNCPU == True):
             errorLastConvLayerPrePool = self.backprop_poollayer(errorLastConvLayerPostPool, poolInds, poolProperties, shapeLayerLPrePooling)
         else:
-            errorLastConvLayerPrePool = backprop_poollayer_gpu(errorLastConvLayerPostPool, poolInds, poolProperties, shapeLayerLPrePooling)
+            if (self.parallelizeAcrossData == True):
+                errorLastConvLayerPrePool = backprop_poollayer_gpu(errorLastConvLayerPostPool, poolInds, poolProperties, shapeLayerLPrePooling)
+            else:
+                errorLastConvLayerPrePool = backprop_poollayer_gpu_parallel_ker(errorLastConvLayerPostPool, poolInds, poolProperties, shapeLayerLPrePooling)
+
+
 
         """ First backpropagate error from pooling layer and then multiply with derivative of activation function"""
         itaLayerL = self.ItaConv[-1]
@@ -693,7 +701,10 @@ class ConvolutionalNeuralNetwork():
             if (self.runCNNCPU == True):
                 errorLayerLPrePool = self.backprop_poollayer(errorLayerL, poolInds, poolProperties, shapeLayerLPrePooling)
             else:
-                errorLayerLPrePool = backprop_poollayer_gpu(errorLayerL, poolInds, poolProperties, shapeLayerLPrePooling)
+                if (self.parallelizeAcrossData == True):
+                    errorLayerLPrePool = backprop_poollayer_gpu(errorLayerL, poolInds, poolProperties, shapeLayerLPrePooling)
+                else:
+                    errorLayerLPrePool = backprop_poollayer_gpu_parallel_ker(errorLayerL, poolInds, poolProperties, shapeLayerLPrePooling)
             t10 = time.time()
             # print('\n\tTime taken for backward pass Pooling layer {0} is {1:.2f} ms'.format(ele4, (t10-t9)*1000))
             errorLayerLplus1 = errorLayerLPrePool * activationFnDerivative
@@ -830,7 +841,7 @@ class ConvolutionalNeuralNetwork():
             t1 = time.time()
             self.compute_forward_backward_pass_cnn(trainDataSample,trainDataLabel)
             t2 = time.time()
-            print('Time taken for batch {0}/{1} is {2:.2f} s'.format(ele+1,numBatches,(t2-t1)))
+            # print('Time taken for batch {0}/{1} is {2:.2f} s'.format(ele+1,numBatches,(t2-t1)))
 
             startIndex += self.mlffnn.batchsize
 
@@ -887,9 +898,11 @@ class ConvolutionalNeuralNetwork():
                 if ((self.trainAccuracy > 91) and (self.validationAccuracy > 91)):
                     break
             else: # There is no validation data to test model
-                print('Epoch: {0}/{1}, train_loss: {2:.1f}'.format(ele1+1, self.epochs, self.trainingLoss))
-            timeEachEpoch = (timeEpochEnd - timeEpochStart)/60
-            print('Time taken for epoch {0} = {1:.2f} min'.format(ele1+1, timeEachEpoch))
+                print('Epoch: {0}/{1}, train_loss: {2:.1f}'.format(ele1+1, self.mlffn.epochs, self.trainingLoss))
+            # timeEachEpoch = (timeEpochEnd - timeEpochStart)/60
+            # print('Time taken for epoch {0} = {1:.2f} min'.format(ele1+1, timeEachEpoch))
+            timeEachEpoch = (timeEpochEnd - timeEpochStart)
+            print('Time taken for epoch {0} = {1:.2f} sec'.format(ele1+1, timeEachEpoch))
 
 
     def compute_train_loss_acc_cnn(self):
