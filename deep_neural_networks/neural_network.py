@@ -117,6 +117,7 @@ class MLFFNeuralNetwork():
         """ weights initialization between each successive layers"""
         self.numLayers = len(self.networkArchitecture)
         self.weightMatrixList = []
+        self.numParamsEachDenseLayer = []
         for ele in range(self.numLayers-1):
             """Weight matrix from layer l to layer l+1 """
             numNodesLayerL = self.networkArchitecture[ele][0]
@@ -126,6 +127,8 @@ class MLFFNeuralNetwork():
             # weightMatrix = np.zeros((numNodesLayerLplus1,numNodesLayerL+1),dtype=np.float32) # +1 is for the bias term
             """ Initialize the weights matrix to random uniformly drawn values from 0 to 1"""
             weightMatrix = np.random.rand(numNodesLayerLplus1,numNodesLayerL+1) # +1 is for the bias term
+            numParamsEachDenseLayer = weightMatrix.size
+            self.numParamsEachDenseLayer.append(numParamsEachDenseLayer)
             self.weightMatrixList.append(weightMatrix)
 
     def set_model_params(self,modeGradDescent = 'online',batchsize = 1, costfn = 'categorical_cross_entropy',epochs = 100000, stepsize = 0.1):
@@ -503,7 +506,7 @@ Good reference docs for GPU parallelization:
 9. Support average pooling as well
 10. Understand dropout layer
 11. Understand batch normalization
-12. Print the number of parameters in the model
+12. Print the number of parameters in the model[Done]
 13. Depthwise convolution + point wise convolution has lesser number of parameter and reduces
 number of operations as compared to standard convolution. But how do we learn the parameters/backprop
 in depth-wise and point wise convolution
@@ -542,6 +545,7 @@ class ConvolutionalNeuralNetwork():
         self.kernelWeights = []
         self.bias = []
         self.numConvLayers = len(self.convLayer)
+        self.numParamsEachConvLayer = []
 
         for ele in range(self.numConvLayers):
             """ Conv layer"""
@@ -549,6 +553,8 @@ class ConvolutionalNeuralNetwork():
             filterSize = self.convLayer[ele][1] # FilterSize/KernelSize
             kernelWeights = np.random.randn(numFilters,filterSize,filterSize,inputDepth)
             bias = np.random.randn(numFilters)
+            numParams = kernelWeights.size + bias.size
+            self.numParamsEachConvLayer.append(numParams)
             self.kernelWeights.append(kernelWeights)
             self.bias.append(bias)
             inputDepth = numFilters
@@ -566,6 +572,9 @@ class ConvolutionalNeuralNetwork():
         """ Dense layer weights initialization"""
         self.mlffnn = MLFFNeuralNetwork(denseLayerArchitecture)
 
+        self.ParamsAllLayers = self.numParamsEachConvLayer + self.mlffnn.numParamsEachDenseLayer # Append the lists of learnable parameters of convolution and dense layers
+        self.totalParamsAllLayers = sum(self.ParamsAllLayers)
+        print('Total trainable params: {0} ({1:.2f} KB) '.format(self.totalParamsAllLayers,(self.totalParamsAllLayers*4)/1024))
         """ Flag to run CNN on CPU or GPU"""
         self.runCNNCPU = False # True to run on CPU and False to run on GPU
         if (self.runCNNCPU == False):
