@@ -516,7 +516,10 @@ in depth-wise and point wise convolution
 17. backprop_poollayer/reverse pooling also has to be converted to a kernel. Eventually make everything on GPU[Done]
 18. Parallelization across kernels not completely tested[Done]
 19. When data is large, use parallelization across data and if data is small then use parallelization across kernels
-20. Print size of memory moved to GPU kernel
+20. Print size of memory moved to GPU kernel[Done]
+21. For computing the accuracy and cost function for the training data (post the training) after each epoch,
+the size of the bulk training data will be huge, need to compute in chunks and not as a bulk,
+else GPU memory will be insufficient[Done]
 """
 
 from cnn_gpu_kernels.parallelize_across_datapoints import cnn_convolve2d_gpu, cnn_backward_convolve2d_gpu, \
@@ -578,7 +581,7 @@ class ConvolutionalNeuralNetwork():
         """ Flag to run CNN on CPU or GPU"""
         self.runCNNCPU = False # True to run on CPU and False to run on GPU
         if (self.runCNNCPU == False):
-            self.parallelizeAcrossData = False#True # True for GPU parallelization across data and false for parallelization across channels/kernels
+            self.parallelizeAcrossData = True#True # True for GPU parallelization across data and false for parallelization across channels/kernels
             # Always try to run parallelization across data first. Time taken by parallelization across kernels is much larger
             # If batch size is much larger than number of channels/kernels, then use parallelize across data, else if number of kernels is larger
             # than batch size like in stochastic gradient descent, use parallelize across kernels
@@ -813,8 +816,10 @@ class ConvolutionalNeuralNetwork():
 
         # print('Im here')
         """ Training loss and accuracy post each epoch"""
-        """ This needs batch processing which I havent brought up yet"""
+        t3 = time.time()
         self.compute_train_loss_acc_cnn()
+        t4 = time.time()
+        # print('Time taken for computing training loss and accuracy after epoch = {0:.2f} min'.format(t4-t3)/60)
 
 
     def batch_gradient_descent_cnn(self):
@@ -825,7 +830,10 @@ class ConvolutionalNeuralNetwork():
         self.compute_forward_backward_pass_cnn(trainDataSample,trainDataLabel)
 
         """ Training loss and accuracy post each epoch"""
+        t3 = time.time()
         self.compute_train_loss_acc_cnn()
+        t4 = time.time()
+        # print('Time taken for computing training loss and accuracy after epoch = {0:.2f} min'.format(t4-t3)/60)
 
 
     def mini_batch_gradient_descent_cnn(self):
@@ -855,7 +863,11 @@ class ConvolutionalNeuralNetwork():
             startIndex += self.mlffnn.batchsize
 
         """ Training loss and accuracy post each epoch"""
+        t3 = time.time()
         self.compute_train_loss_acc_cnn()
+        t4 = time.time()
+        # print('Time taken for computing training loss and accuracy after epoch = {0:.2f} min'.format(t4-t3)/60)
+
 
 
     def model_validation_cnn(self):
@@ -873,6 +885,8 @@ class ConvolutionalNeuralNetwork():
 
     def predict_cnn(self,testData):
          # testData should be of shape numFeatures x numTestcases
+
+         # Ideally predict function should also be in batches and not one shot, else it will eat up GPU memory
         self.forwardpass_cnn(testData)
         self.testDataPredictedLabels = self.predictedOutputcnn
 
@@ -893,11 +907,17 @@ class ConvolutionalNeuralNetwork():
             elif self.mlffnn.modeGradDescent == 'mini_batch':
                 self.mini_batch_gradient_descent_cnn()
 
-            if (self.validationData.shape[-1] != 0): # There is some validation data to test model
-                self.model_validation_cnn()
             timeEpochEnd = time.time()
+            timeEachEpoch = (timeEpochEnd - timeEpochStart)/60
+            print('\nTime taken for epoch {0}/{1} = {2:.2f} min'.format(ele1+1, self.mlffnn.epochs, timeEachEpoch))
+
             if (self.validationData.shape[-1] != 0): # There is some validation data to test model
-                print('\nEpoch: {0}/{1}'.format(ele1+1, self.mlffnn.epochs))
+                timeStartValidation = time.time()
+                self.model_validation_cnn()
+                timeEndValidation = time.time()
+                timeValidation = (timeEndValidation - timeStartValidation)
+                print('Validation time for epoch {0}/{1} is {2:.2f} secs'.format(ele1+1, self.mlffnn.epochs, timeValidation))
+                print('Epoch: {0}/{1}'.format(ele1+1, self.mlffnn.epochs))
                 print('train_loss: {0:.1f}, val_loss: {1:.1f}, train_accuracy: {2:.1f}, val_accuracy: {3:.1f}'.format(self.trainingLoss, self.validationLoss, self.trainAccuracy, self.validationAccuracy))
 
                 # if ((self.trainAccuracy > 90) and (self.validationAccuracy > 90) and (flagStepSizeChange == 1)):
@@ -908,19 +928,50 @@ class ConvolutionalNeuralNetwork():
                     break
             else: # There is no validation data to test model
                 print('Epoch: {0}/{1}, train_loss: {2:.1f}'.format(ele1+1, self.mlffn.epochs, self.trainingLoss))
-            # timeEachEpoch = (timeEpochEnd - timeEpochStart)/60
-            # print('Time taken for epoch {0} = {1:.2f} min'.format(ele1+1, timeEachEpoch))
-            timeEachEpoch = (timeEpochEnd - timeEpochStart)
-            print('Time taken for epoch {0} = {1:.2f} sec'.format(ele1+1, timeEachEpoch))
+
 
 
     def compute_train_loss_acc_cnn(self):
+
         """ Compute training loss and accuracy on the training data again with the weights obtained at the end of each epoch"""
-        self.forwardpass_cnn(self.trainData) # Compute forward pass output on the entire training data after each epoch
-        self.trainingLoss = self.mlffnn.compute_loss_function(self.trainDataLabels)
-        self.trainingLossArray.append(self.trainingLoss) # Keep appending the cost/loss function value for each epoch
-        self.mlffnn.get_accuracy(self.trainDataLabels, self.predictedOutputcnn)
-        self.trainAccuracy = self.mlffnn.accuracy
+
+        numTrainingData = self.trainData.shape[3]
+        if (self.runCNNCPU == True):
+            self.forwardpass_cnn(self.trainData) # Compute forward pass output on the entire training data after each epoch
+            self.trainingLoss = self.mlffnn.compute_loss_function(self.trainDataLabels)
+            self.trainingLossArray.append(self.trainingLoss) # Keep appending the cost/loss function value for each epoch
+            self.mlffnn.get_accuracy(self.trainDataLabels, self.predictedOutputcnn)
+            self.trainAccuracy = self.mlffnn.accuracy
+        else:
+            if (self.parallelizeAcrossData == True):
+                numBatches = int(np.ceil(numTrainingData/self.mlffnn.batchsize))
+                batchsize = self.mlffnn.batchsize
+            else:
+                numBatches = numTrainingData
+                batchsize = 1
+
+            startIndex = 0
+            predictedOutputAllTrainData = np.zeros(self.trainDataLabels.shape,dtype=np.float32)
+            for ele in range(numBatches):
+                if (startIndex+batchsize <= numTrainingData):
+                    trainDataSample = self.trainData[:,:,:,startIndex:startIndex+batchsize]
+                else:
+                    trainDataSample = self.trainData[:,:,:,startIndex::]
+
+                self.forwardpass_cnn(trainDataSample)
+
+                if (startIndex+batchsize <= numTrainingData):
+                    predictedOutputAllTrainData[:,startIndex:startIndex+batchsize] = self.predictedOutputcnn
+                else:
+                    predictedOutputAllTrainData[:,startIndex::] = self.predictedOutputcnn
+
+                startIndex += batchsize
+
+            self.mlffnn.predictedOutput = predictedOutputAllTrainData
+            self.trainingLoss = self.mlffnn.compute_loss_function(self.trainDataLabels)
+            self.trainingLossArray.append(self.trainingLoss) # Keep appending the cost/loss function value for each epoch
+            self.mlffnn.get_accuracy(self.trainDataLabels, self.mlffnn.predictedOutput)
+            self.trainAccuracy = self.mlffnn.accuracy
 
 
 
