@@ -42,8 +42,10 @@ def cnn_convolve2d_parallel_ker_gpu(inputImage3d, kernelFunctions,convMode='vali
     pad_height = kernelHeight - 1
     pad_width = kernelWidth - 1
     padded_input = cp.zeros((inputHeight + 2 * pad_height, inputWidth + 2 * pad_width, numKernels), dtype=cp.float32)
+    gpuMemUsedBytes = inputImage3d.nbytes + kernelFunctions.nbytes + convOutput.nbytes + 4 + 4 + 4 + scratchpad.nbytes + padded_input.nbytes + 4
+    # print('GPU memory input to convolve2d_parallel_ker_gpu = {0:.2f} MB'.format(gpuMemUsedBytes/(1024*1024)))
     convolve2d_parallel_ker_gpu[blkPerGrid,thrdPerBlock](inputImage3d,kernelFunctions,convOutput,numDataPoints,numKernels,numChannels, scratchpad, padded_input, convType)
-    # cp.cuda.Device().synchronize()
+    cp.cuda.Device().synchronize()
     # convOutput = cp.array(convOutput)
     convOutput = cp.asnumpy(convOutput)
 
@@ -78,8 +80,10 @@ def cnn_backward_convolve2d_parallel_chan_gpu(inputImage3d, kernelFunctions,conv
     pad_height = kernelHeight - 1
     pad_width = kernelWidth - 1
     padded_input = cp.zeros((inputHeight + 2 * pad_height, inputWidth + 2 * pad_width, numChannels), dtype=cp.float32)
+    gpuMemUsedBytes = inputImage3d.nbytes + kernelFunctions.nbytes + convOutput.nbytes + 4 + 4 + 4 + scratchpad.nbytes + padded_input.nbytes + 4
+    # print('GPU memory input to convolve2d_backward_parallel_chan_gpu = {0:.2f} MB'.format(gpuMemUsedBytes/(1024*1024)))
     convolve2d_backward_parallel_chan_gpu[blkPerGrid,thrdPerBlock](inputImage3d,kernelFunctions,convOutput,numDataPoints,numKernels,numChannels, scratchpad, padded_input, convType)
-    # cp.cuda.Device().synchronize()
+    cp.cuda.Device().synchronize()
     # convOutput = cp.array(convOutput)
     convOutput = cp.asnumpy(convOutput)
 
@@ -115,8 +119,10 @@ def cnn_gradient_convolve2d_parallel_ker_gpu(outputLayerL, errorConvLayerLplu1,c
     pad_height = kernelHeight - 1
     pad_width = kernelWidth - 1
     padded_input = cp.zeros((inputHeight + 2 * pad_height, inputWidth + 2 * pad_width, numKernels), dtype=cp.float32)
+    gpuMemUsedBytes = outputLayerL.nbytes + errorConvLayerLplu1.nbytes + convOutput.nbytes + 4 + 4 + 4 + padded_input.nbytes + 4
+    # print('GPU memory input to convolve2d_gradient_parallel_ker_gpu = {0:.2f} MB'.format(gpuMemUsedBytes/(1024*1024)))
     convolve2d_gradient_parallel_ker_gpu[blkPerGrid,thrdPerBlock](outputLayerL,errorConvLayerLplu1,convOutput,numDataPoints,numKernels,numChannels, padded_input, convType)
-    # cp.cuda.Device().synchronize()
+    cp.cuda.Device().synchronize()
     # convOutput = cp.array(convOutput)
     convOutput = cp.asnumpy(convOutput)
 
@@ -138,9 +144,12 @@ def pooling_gpu_parallel_ker(image3d, poolLayer):
     thrdPerBlock = 32
     blkPerGrid = int(cp.ceil(numChannels/thrdPerBlock))
 
+    gpuMemUsedBytes = image3d.nbytes + 4 + 4 + 4 + 4 + poolingOutput.nbytes + maxPoolingIndex.nbytes
+    # print('GPU memory input to max_pooling_gpu_kernel_parallel_ker = {0:.2f} MB'.format(gpuMemUsedBytes/(1024*1024)))
     if (poolType == 'maxpool'):
         max_pooling_gpu_kernel_parallel_ker[blkPerGrid,thrdPerBlock](image3d,numChannels,numDataPoints,poolSize,poolStride,poolingOutput,maxPoolingIndex)
 
+    cp.cuda.Device().synchronize()
     poolingOutput = cp.asnumpy(poolingOutput)
     maxPoolingIndex = cp.asnumpy(maxPoolingIndex)
 
@@ -162,8 +171,10 @@ def backprop_poollayer_gpu_parallel_ker(errorGradients, poolInds, poolProperties
 
     thrdPerBlock = 32#4
     blkPerGrid = int(cp.ceil(errorGradientnumChannels/thrdPerBlock))
+    gpuMemUsedBytes = errorGradients.nbytes + poolInds.nbytes + errorGradientsPrePool.nbytes + 4 + 4
+    # print('GPU memory input to backprop_poollayer_gpu_kernel_parallel_ker = {0:.2f} MB'.format(gpuMemUsedBytes/(1024*1024)))
     backprop_poollayer_gpu_kernel_parallel_ker[blkPerGrid,thrdPerBlock](errorGradients, poolInds, errorGradientsPrePool, poolSize, poolStride)
-
+    cp.cuda.Device().synchronize()
     errorGradientsPrePool = cp.asnumpy(errorGradientsPrePool)
 
     return errorGradientsPrePool
