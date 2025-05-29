@@ -126,7 +126,10 @@ class MLFFNeuralNetwork():
             # Initialization of weights with 0s doesnt seem to be convering for the stochastic gradient descent method!
             # weightMatrix = np.zeros((numNodesLayerLplus1,numNodesLayerL+1),dtype=np.float32) # +1 is for the bias term
             """ Initialize the weights matrix to random uniformly drawn values from 0 to 1"""
-            weightMatrix = np.random.rand(numNodesLayerLplus1,numNodesLayerL+1) # +1 is for the bias term
+            # weightMatrix = np.random.rand(numNodesLayerLplus1,numNodesLayerL+1) # +1 is for the bias term
+            fan_in = numNodesLayerL
+            scalingFactorHeInit = (np.sqrt(2/fan_in)) # This is the scaling for ReLU activation functions in the DNN
+            weightMatrix = np.random.randn(numNodesLayerLplus1,numNodesLayerL+1) * scalingFactorHeInit # +1 is for the bias term
             numParamsEachDenseLayer = weightMatrix.size
             self.numParamsEachDenseLayer.append(numParamsEachDenseLayer)
             self.weightMatrixList.append(weightMatrix)
@@ -199,10 +202,15 @@ class MLFFNeuralNetwork():
     def compute_loss_function(self,trainDataLabel):
 
         if (self.costfn == 'categorical_cross_entropy'):
-            mask = self.predictedOutput !=0 # Avoid 0 values in log2 evaluation
-            costFunction = -np.sum((trainDataLabel[mask]*np.log2(self.predictedOutput[mask]))) # -Sum(di*log(yi)), where di is the actual output and yi is the predicted output
+            mask = self.predictedOutput !=0 # Avoid 0 values in log2 evaluation. But this is not correct. It can mask wrong classifications.
+            batchSize = self.predictedOutput.shape[1]
+            # cost fn = -Sum(di*log(yi))/N, where di is the actual output and yi is the predicted output, N is the batch size.
+            costFunction = (-np.sum((trainDataLabel[mask]*np.log2(self.predictedOutput[mask]))))/batchSize # Mean loss across data points
         elif (self.costfn == 'squared_error'):
-            costFunction = 0.5*np.sum((self.predictedOutput - trainDataLabel)**2) # 1/2 Sum((yi - di)**2), where di is the actual output and yi is the predicted output
+            batchSize = self.predictedOutput.shape[1]
+            # cost fn = 1/2 Sum((yi - di)**2)/N, where di is the actual output and yi is the predicted output, N is the batch size
+            costFunction = (0.5*np.sum((self.predictedOutput - trainDataLabel)**2))/batchSize # Mean loss across data points. Have not verified this line. Might throw error because of shape mismatches, etc
+            """ Need to divide by N (batch size) to get the mean loss across data points"""
 
         return costFunction
 
@@ -214,6 +222,11 @@ class MLFFNeuralNetwork():
         numTrainingSamples = trainDataSample.shape[1]
         self.Ita = []
         self.outputEachlayer = []
+        ## Debug
+        # import pickle
+        # with open("weightMatrix.pkl", "rb") as file:
+        #     self.weightMatrixList = pickle.load(file)
+        ##
         # ele3 is looping over the layers
         for ele3 in range(self.numLayers):
             numNodesLayerL = self.networkArchitecture[ele3][0]
@@ -288,7 +301,8 @@ class MLFFNeuralNetwork():
         # gradient # dJ/dwij for all i,j
         count = -1
         for ele4 in range(self.numLayers-1):
-            gradientCostFnwrtWeights = self.errorEachLayer[count] @ self.outputEachlayer[ele4].T
+            batchSize = self.errorEachLayer[count].shape[1]
+            gradientCostFnwrtWeights = (self.errorEachLayer[count] @ self.outputEachlayer[ele4].T)/batchSize # Division becuase we want to get the mean of the gradients across all data points
             self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights # Gradient descent step
             count -= 1
 
@@ -448,6 +462,7 @@ class MLFFNeuralNetwork():
 
 Need to go from ANN to CNN?
 https://www.quora.com/Why-do-we-use-CNN-when-we-already-have-ANN-with-a-fully-connected-structure
+https://www.youtube.com/watch?v=H_JtjeSNhA0&list=PLEAYkSg4uSQ0Q5Z1IYI-0g2cbD-2Rt-I6&index=33
 1. Exploding number of ANN parameters/weights especially when the size of input image is very large and we have to flatten for the ANN
 2. Larger the input size, more the number of weights/parameters --> more number of examples
 required to train the network.
@@ -520,6 +535,38 @@ in depth-wise and point wise convolution
 21. For computing the accuracy and cost function for the training data (post the training) after each epoch,
 the size of the bulk training data will be huge, need to compute in chunks and not as a bulk,
 else GPU memory will be insufficient[Done]
+22. For the fashion MNIST dataset, the loss function is not changing at all meaning the weights are not getting updated at all. [Done]
+Debugged this. Cause was the outputs were too large especially at the output layer logits before taking the softmax. This implied that
+internally, the outputs at each layer were blowing up. Now, since the logits were too large, post soft max, the output values were always zero or 1 and not any intermediate values!
+Due to this, when we were computing the error, it was coming out as 0 even at the first iteration(even with random weights)!
+Why? Because, if the output was correct, error is 0 and error propagated is also 0. Also, I was calculating the loss and gradients as a sum for all data points.
+This was blowing up the loss  and the gradients as well leading to exploding gradients as well. Now I have replaced sum with mean and now compute the loss and gradeients
+as a mean of all datapoints.
+This means the gradient also becomes zero, vanishing gradients(Note: Gradient is product of error at next layer and output of current layer)
+Since gradients were zero, the weights were also not updating and hence no change in loss. I have fixed this by using the He method of weight initialization!
+23. Loss fn isn't changing means either the update rate is too small or that the gradients are too large or too small. For the fashion MNIST dataset, it was
+vanishing gradients. [Done] Fixed by He weight initialization!
+24. Implement RMSProp, ADAM, Adagrad methods of Gradient descent optimization algorithms
+25. Xavier and He initialization methods. Video link: https://www.youtube.com/watch?v=1pgahpCZeF0&list=PLyqSpQzTE6M9gCgajvQbc68Hk_JKGBAYT&index=73
+26. Dropouts for regularization
+27. Batch normalization
+28. Plot distribution of weights at each layer
+29. If we are going with a simple optimizer like gradient descent,
+we should follow the standard initialization practises like He, Xavier which ensure all neuroans are alive
+and learning throughout the training process. But modern techniques like dropouts, normalizations, other optimizers
+like RMSProp, Adam, we dont need to worry too much about initializations. These methods handle relatively poor initializations as well.
+The below lecture link by Andrez Karpathy beautifully explains this:
+    https://www.youtube.com/watch?v=P6sfmUTpUmc&list=PLAqhIrjkxbuWI23v9cThsA9GvCAUhRvKZ&index=4
+There is also another lecture by Mitesh Khapra, IITM, which talks about the initilaizations in a more detailed manner.
+30. When using batch normalization, we are making the ita as normal gaussian distribution and hence it has zero mean which means the bias term that we add
+earlier is getting removed post the batch normalization. Infact if we check the gradients of the bias terms with batch normalization, they will all be 0.
+So, if we are enabling batch normalization, we can get rid of the bias terms! As an exercise, after implementing batch normalization, check the gradients of the bias term!
+The bias term we add in the batch normalization process, itself takes care of the bias
+31. If a layer has batch normalization, then replace f'(ita) with f'(ita_^^)*(alpha/sigma)
+where ita_^^ = alpha (ita_^) + beta, ita_^ = (ita-mu)/sigma, where mu and sigma are the mean and variance across the data points for that particular node/neuron.
+I have derived this, but need to verify!
+31. Understand the embedding matrix for LLMs. Why is it used?
+
 """
 
 from cnn_gpu_kernels.parallelize_across_datapoints import cnn_convolve2d_gpu, cnn_backward_convolve2d_gpu, \
@@ -554,8 +601,10 @@ class ConvolutionalNeuralNetwork():
             """ Conv layer"""
             numFilters = self.convLayer[ele][0]
             filterSize = self.convLayer[ele][1] # FilterSize/KernelSize
-            kernelWeights = np.random.randn(numFilters,filterSize,filterSize,inputDepth)
-            bias = np.random.randn(numFilters)
+            fan_in = filterSize * filterSize * inputDepth
+            scalingFactorHeInit = np.sqrt(2/fan_in) # For ReLU activation function only! This changes based on the activation function used
+            kernelWeights = np.random.randn(numFilters,filterSize,filterSize,inputDepth) * scalingFactorHeInit #(0.01**(ele+1))#* 0.01# 1/np.sqrt(3*inputDepth)
+            bias = np.random.randn(numFilters) * scalingFactorHeInit
             numParams = kernelWeights.size + bias.size
             self.numParamsEachConvLayer.append(numParams)
             self.kernelWeights.append(kernelWeights)
@@ -603,6 +652,16 @@ class ConvolutionalNeuralNetwork():
         self.maxPoolingIndex = np.zeros(layerLOutput.shape,dtype=np.int32) # No pooling required for first output layer which is actually input layer
         self.outputEachConvlayer.append(layerLminus1Output) # Output for each layer. Stored post pooling
         self.maxPoolingIndexEachConvLayer.append(self.maxPoolingIndex)
+
+        ## For debug only
+        # import pickle
+        # with open("kernelWeights.pkl", "rb") as file:
+        #     self.kernelWeights = pickle.load(file)
+
+        # with open("bias.pkl", "rb") as file:
+        #     self.bias = pickle.load(file)
+        ##
+
         # ele3 is looping over the convolution layers
         for ele3 in range(1,self.numConvLayers+1):
             weightMatrixLayerLminus1toL = self.kernelWeights[ele3-1]
@@ -642,7 +701,11 @@ class ConvolutionalNeuralNetwork():
         heightLastConvLayer = layerLminus1Output.shape[1]
         widthLastConvLayer = layerLminus1Output.shape[2]
         layerLminus1Output2d = np.transpose(layerLminus1Output,(3,0,1,2)).reshape(numTrainingSamples,
-                                                           numChannelsLastConvLayer*heightLastConvLayer*widthLastConvLayer)
+                                                            numChannelsLastConvLayer*heightLastConvLayer*widthLastConvLayer)
+
+        # According to tensorflow, first flatten channels then width and then height. This is counter intuitive!
+        # layerLminus1Output2d = np.transpose(layerLminus1Output,(3,1,2,0)).reshape(numTrainingSamples,
+        #                                                     numChannelsLastConvLayer*heightLastConvLayer*widthLastConvLayer)
 
 
         flattenOutputConvLayers = layerLminus1Output2d.T # For batch/mini batch mode, we will have to make it 2 D and not flatten as 1D
@@ -754,6 +817,7 @@ class ConvolutionalNeuralNetwork():
 
 
 
+
     def update_weights_cnn(self):
         # Errors/delta obtained for all the layers from 2 to L
         # Compute gradient wrt Wl_ij
@@ -771,9 +835,9 @@ class ConvolutionalNeuralNetwork():
                 else:
                     gradientCostFnwrtKernelWeights = cnn_gradient_convolve2d_parallel_ker_gpu(np.flip(self.outputEachConvlayer[ele4],axis=(1,2)), self.errorEachConvLayer[count], convMode='valid')
 
-            gradientCostFnwrtKernelWeightsAllDataPoints = np.sum(gradientCostFnwrtKernelWeights,axis=-1)
+            gradientCostFnwrtKernelWeightsAllDataPoints = np.mean(gradientCostFnwrtKernelWeights,axis=-1)#np.sum(gradientCostFnwrtKernelWeights,axis=-1)
             self.kernelWeights[ele4] = self.kernelWeights[ele4] - self.mlffnn.stepsize*gradientCostFnwrtKernelWeightsAllDataPoints # Gradient descent step
-            gradientCostFnwrtBias = np.sum(self.errorEachConvLayer[count],axis=(1,2,3))
+            gradientCostFnwrtBias = np.mean(self.errorEachConvLayer[count],axis=(1,2,3)) #np.sum(self.errorEachConvLayer[count],axis=(1,2,3))
             self.bias[ele4] = self.bias[ele4] - self.mlffnn.stepsize*gradientCostFnwrtBias # Gradient descent step
             count -= 1
 
@@ -886,9 +950,41 @@ class ConvolutionalNeuralNetwork():
     def predict_cnn(self,testData):
          # testData should be of shape numFeatures x numTestcases
 
-         # Ideally predict function should also be in batches and not one shot, else it will eat up GPU memory
-        self.forwardpass_cnn(testData)
-        self.testDataPredictedLabels = self.predictedOutputcnn
+        numvalidationData = testData.shape[3]
+        if (self.runCNNCPU == True):
+            self.forwardpass_cnn(testData)
+            self.testDataPredictedLabels = self.predictedOutputcnn
+        else:
+            if (self.parallelizeAcrossData == True):
+                numBatches = int(np.ceil(numvalidationData/self.mlffnn.batchsize))
+                batchsize = self.mlffnn.batchsize
+            else:
+                numBatches = numvalidationData
+                batchsize = 1
+
+            startIndex = 0
+            numOutputNodes = self.outputLayer[0][0]
+            predictedOutputAllTestData = np.zeros((numOutputNodes,numvalidationData),dtype=np.float32)
+            for ele in range(numBatches):
+                if (startIndex+batchsize <= numvalidationData):
+                    testDataSample = testData[:,:,:,startIndex:startIndex+batchsize]
+                else:
+                    testDataSample = testData[:,:,:,startIndex::]
+
+                self.forwardpass_cnn(testDataSample)
+
+                if (startIndex+batchsize <= numvalidationData):
+                    predictedOutputAllTestData[:,startIndex:startIndex+batchsize] = self.predictedOutputcnn
+                else:
+                    predictedOutputAllTestData[:,startIndex::] = self.predictedOutputcnn
+
+                startIndex += batchsize
+
+            self.testDataPredictedLabels = predictedOutputAllTestData # This variable is used outside this class and in the script where the cnn class is called
+            self.mlffnn.predictedOutput = predictedOutputAllTestData # This variable is populated to cater to cost function/loss function evaluation in the MLFF class method
+            self.predictedOutputcnn = predictedOutputAllTestData # This variable is required for evaluating the validation accuracy
+
+
 
 
     def backpropagation_cnn(self):
@@ -906,28 +1002,29 @@ class ConvolutionalNeuralNetwork():
 
             elif self.mlffnn.modeGradDescent == 'mini_batch':
                 self.mini_batch_gradient_descent_cnn()
-
-            timeEpochEnd = time.time()
-            timeEachEpoch = (timeEpochEnd - timeEpochStart)/60
-            print('\nTime taken for epoch {0}/{1} = {2:.2f} min'.format(ele1+1, self.mlffnn.epochs, timeEachEpoch))
+                # print('Weights of last FC layer {0} after epoch {1}/{2}'.format(self.mlffnn.weightMatrixList[-1],ele1+1,self.mlffnn.epochs))
 
             if (self.validationData.shape[-1] != 0): # There is some validation data to test model
                 timeStartValidation = time.time()
                 self.model_validation_cnn()
                 timeEndValidation = time.time()
                 timeValidation = (timeEndValidation - timeStartValidation)
-                print('Validation time for epoch {0}/{1} is {2:.2f} secs'.format(ele1+1, self.mlffnn.epochs, timeValidation))
-                print('Epoch: {0}/{1}'.format(ele1+1, self.mlffnn.epochs))
-                print('train_loss: {0:.1f}, val_loss: {1:.1f}, train_accuracy: {2:.1f}, val_accuracy: {3:.1f}'.format(self.trainingLoss, self.validationLoss, self.trainAccuracy, self.validationAccuracy))
+                # print('Validation time for epoch {0}/{1} is {2:.2f} secs'.format(ele1+1, self.mlffnn.epochs, timeValidation))
+                # print('Epoch: {0}/{1}'.format(ele1+1, self.mlffnn.epochs))
+                print('\ntrain_loss: {0:.1f}, val_loss: {1:.1f}, train_accuracy: {2:.1f}, val_accuracy: {3:.1f}'.format(self.trainingLoss, self.validationLoss, self.trainAccuracy, self.validationAccuracy))
 
-                # if ((self.trainAccuracy > 90) and (self.validationAccuracy > 90) and (flagStepSizeChange == 1)):
-                #     self.mlffnn.stepsize = self.mlffnn.stepsize/10 # Make step size smaller when achieving higher accuracy > 90%
-                #     flagStepSizeChange = 0
+                if ((self.trainAccuracy > 80) and (self.validationAccuracy > 80) and (flagStepSizeChange == 1)): # Ideally it should be ((self.trainAccuracy > 90) and (self.validationAccuracy > 90)
+                    self.mlffnn.stepsize = self.mlffnn.stepsize/10 # Make step size smaller when achieving higher accuracy > 90%
+                    flagStepSizeChange = 0
 
-                if ((self.trainAccuracy > 91) and (self.validationAccuracy > 91)):
+                if ((self.trainAccuracy > 95) and (self.validationAccuracy > 95)):
                     break
             else: # There is no validation data to test model
                 print('Epoch: {0}/{1}, train_loss: {2:.1f}'.format(ele1+1, self.mlffn.epochs, self.trainingLoss))
+
+            timeEpochEnd = time.time()
+            timeEachEpoch = (timeEpochEnd - timeEpochStart)/60
+            print('Time taken for epoch {0}/{1} = {2:.2f} min'.format(ele1+1, self.mlffnn.epochs, timeEachEpoch))
 
 
 
@@ -1024,6 +1121,9 @@ class ConvolutionalNeuralNetwork():
             for ele1 in range(numKernels):
                 for ele2 in range(numChannels):
                     convOutput[ele1,:,:,ele3] += convolve2d(inputImage3d[ele2,:,:,ele3], kernelFunctions[ele1,:,:,ele2], mode=convMode)
+
+                    # As per tensorflow bit matching, peform correlation and not convolution as below
+                    # convOutput[ele1,:,:,ele3] += convolve2d(inputImage3d[ele2,:,:,ele3], np.flip(kernelFunctions[ele1,:,:,ele2],axis=(0,1)), mode=convMode)
 
 
         return convOutput

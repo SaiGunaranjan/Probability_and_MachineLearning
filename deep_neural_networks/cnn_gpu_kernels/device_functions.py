@@ -31,6 +31,7 @@ def convolution_2d_valid(input_matrix, kernel, result):
 
     # Manually flip the kernel (180 degrees)
     flipped_kernel = kernel[::-1,::-1]
+    # flipped_kernel = kernel # To bitmatch with tensorflow, I should not flip the kernel during convolution
 
     # Perform convolution
     for i in range(output_height):
