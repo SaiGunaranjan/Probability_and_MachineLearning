@@ -97,6 +97,57 @@ NN for classification problem
 17. Find out failure cases[Done]
 18. For batch normalization, check and verify that the gradient of the loss fn wrt to the bias is 0
 (since bias gets removed by normalization step!). Verify this.
+
+02/06/2025
+
+Implement the batch normalization for DNN
+
+In this commit, I have implemented the batch normalization(BN) for a DNN architecture(BN for CNN is pending, will implement it next).
+The implementation is exactly along the lines of Andrej Karpathy's video lecture
+https://www.youtube.com/watch?v=P6sfmUTpUmc&list=PLAqhIrjkxbuWI23v9cThsA9GvCAUhRvKZ&index=7
+
+In BN, we normalize ita to a standard gaussian by removing the mean and normalizing by the sigma.
+Mean and sigma are computed over the mini batch. This normalized ita is then scaled by a parameter
+gamma and shifted by a parameter beta. Why are we doing this?
+Essentially, when training a neural network, the weight initialization is very critical,
+especially for very deep networks. We have to carefully follow the He/Xavier initializations
+which scale the standard normal distribution by the square root of the fan-in/number of input
+connections to that layer. There is also a gain factor which depends on the type of activation function
+used. This weight initialization ensures the variance across the layers stays in control and doesnt
+blow up. But this kindof of very careful weight nitialization can become tedious. Instead, we adopt a
+more structured approach called batch normalization. Here, at initialization, we force each layer ita
+to a standard normal distribution by removing mean and scaling by sigma. We then scale back the
+normalized ita with learnable parameters gamma and beta. Over iterations/epochs, the network learns
+its own distribution based on gamma and beta parameters. By adoptin this approach, at initialization,
+all neurons will stay active without dying or exploding. Across epochs, each neuron at each layer
+will eventually learn its own distribution of values through its control parameters gamma and beta.
+I have also derived the back propagation to obtain the gamma and beta gradients wrt loss function.
+It seems to be working fine. I will add the derivation in my one note book. I'm able to achive decent
+accuracy, though it appears slightly inferior to the He initialization. Ideally the performance has
+to be same as He initialization, but I see a very slight degraded performance with BN in terms of the
+loss/accuracy convergence rates. Previously, with the He initialization, it was converging faster.
+Now it is taking slightly longer. I will reverify this. It could be due to some parameter setting.
+
+While training, we continuously estimate a running mean and variance of each neuron of each layer as
+a linear combination (convex combination) of the curent batch mean/sigma and the previous mean/sigma.
+At the end of the training, this running mean/sigma is used while running on the test data. This way,
+we don't have to explicitly compute the mean and sigma of the test data at each layer and each neuron.
+We can simply resuse the running mean/sigma estimated from training data. This is just a compute
+convenience. Towards this, I have introduced a flag called 'trainOrTestString' in the forward pass.
+When this flag is set to 'train', a running mean/sigma is computed to normalize the ita.
+When the flag is set to 'test', we use the running mean/sigma to standard normalize the ita of
+test data and then scale and shift with the learnt parameters gamma and beta.
+
+I have also added a 3rd argument in the DNN architecture definition. 1st argumenet is the number of
+nodes for that layer, 2nd argument is the activation function for that layer, now 3rd argument indicates
+whether BN is to be enabled or disabled for that layer. The input and output layers always should have
+BN set to 0!
+
+Next I will implement the Batch Normalization for CNN.
+
+
+
+
 """
 
 import numpy as np
