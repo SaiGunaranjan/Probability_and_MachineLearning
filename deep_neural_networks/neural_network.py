@@ -98,6 +98,15 @@ NN for classification problem
 18. For batch normalization, check and verify that the gradient of the loss fn wrt to the bias is 0
 (since bias gets removed by normalization step!). Verify this.
 
+If validation loss is not changing, try changing the follwing parameters:
+    1. learning rate
+    2. Weight initialization
+    3. Batch normalization (lamda value for convex combination)
+    4. check output values for each layer
+    5. Back propagated errors at each layer
+    6. gradients computed
+    7. Ratio of weight gradients to the original weight values
+
 02/06/2025
 
 Implement the batch normalization for DNN
@@ -184,12 +193,10 @@ class MLFFNeuralNetwork():
             # weightMatrix = np.zeros((numNodesLayerLplus1,numNodesLayerL+1),dtype=np.float32) # +1 is for the bias term
             """ Initialize the weights matrix to random uniformly drawn values from 0 to 1"""
             # weightMatrix = np.random.rand(numNodesLayerLplus1,numNodesLayerL+1) # +1 is for the bias term
-            """ Weight initialization using He method"""
-            fan_in = numNodesLayerL
-            scalingFactorHeInit = (np.sqrt(2/fan_in)) # This is the scaling for ReLU activation functions in the DNN
-            weightMatrix = np.random.randn(numNodesLayerLplus1,numNodesLayerL+1) #* scalingFactorHeInit # +1 is for the bias term
+
             # Batch Normalization (BN) not defined for input and output layers
             if (self.networkArchitecture[ele][2] == 1): # If BN is enabled for a hidden layer
+                weightMatrix = np.random.randn(numNodesLayerLplus1,numNodesLayerL+1) # +1 is for the bias term
                 gammaScaling = np.ones((numNodesLayerL,)) # This is the standard deviation parameter
                 betaShift = np.zeros((numNodesLayerL,)) # This is the mean parameter
 
@@ -197,6 +204,10 @@ class MLFFNeuralNetwork():
                 runningMean = np.zeros((numNodesLayerL,))
                 runningVar = np.ones((numNodesLayerL,))
             else:
+                """ Weight initialization using He method"""
+                fan_in = numNodesLayerL
+                scalingFactorHeInit = (np.sqrt(2/fan_in)) # This is the scaling for ReLU activation functions in the DNN
+                weightMatrix = np.random.randn(numNodesLayerLplus1,numNodesLayerL+1) * scalingFactorHeInit # +1 is for the bias term
                 gammaScaling = np.empty([0])
                 betaShift = np.empty([0])
 
