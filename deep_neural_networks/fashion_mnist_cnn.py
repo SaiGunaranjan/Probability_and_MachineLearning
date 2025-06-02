@@ -106,10 +106,13 @@ This is leading to same loss always"""
 
 cnn = ConvolutionalNeuralNetwork(inputShape, convLayer, poolLayer, denseLayer, outputLayer)
 # sys.exit()
-""" If validation loss is not changing, try reducing the learning rate"""
+
 # cnn.mlffnn.set_model_params(modeGradDescent = 'online',costfn = 'categorical_cross_entropy',epochs=100, stepsize=1e-6) # Achieved 72% accuracy with this mode
 cnn.mlffnn.set_model_params(modeGradDescent = 'mini_batch',batchsize = 1024,costfn = 'categorical_cross_entropy',epochs=1000, stepsize=1e-2) #epochs=1000,stepsize=1e-3
-# Looks like weights are not updating sue to large values of the error gradients wrt weights. Hence loss is not changing wrt epochs
+# Since the data set is very large and also Im running a CNN, If I use smaller batch sizes,
+# the time for each epoch is very very large becuase of under utilization of GPU. Hence, for the sake of
+# quick results, I'm using larger batch sizes like 1024, etc for better GPU utilization and lesser compute time per epoch
+
 
 split = 1 # Make it back to 1# Split data into training and testing
 numDataPoints = X_train.shape[3]
