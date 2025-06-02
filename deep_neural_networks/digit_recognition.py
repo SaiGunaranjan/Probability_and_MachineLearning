@@ -150,11 +150,12 @@ Y_data = Y_data.T # [dimOneHotVector, NumberOfFeatureVectors]
 1st element in architecture list is input, last element is output"""
 numInputNodes = X_data.shape[0]
 numOutputNodes = Y_data.shape[0]
-networkArchitecture = [(numInputNodes,'Identity'), (100,'ReLU'), (numOutputNodes,'softmax')]
+networkArchitecture = [(numInputNodes,'Identity',0), (100,'ReLU',1), (numOutputNodes,'softmax',0)]
 mlffnn = MLFFNeuralNetwork(networkArchitecture)
 """ If validation loss is not changing, try reducing the learning rate"""
-mlffnn.set_model_params(modeGradDescent = 'batch',costfn = 'categorical_cross_entropy',epochs=10000, stepsize=1e-6)
+# mlffnn.set_model_params(modeGradDescent = 'batch',costfn = 'categorical_cross_entropy',epochs=10000, stepsize=1e-6) # With no batch normalization and no He initialization!
 # mlffnn.set_model_params(modeGradDescent = 'online',costfn = 'categorical_cross_entropy',epochs=6000, stepsize=0.0001)
+mlffnn.set_model_params(modeGradDescent = 'mini_batch',batchsize=32, costfn = 'categorical_cross_entropy',epochs=10000, stepsize=1e-3) # With batch normalization
 """batchsize should be a power of 2"""
 # mlffnn.set_model_params(modeGradDescent = 'mini_batch',batchsize = 2048, costfn = 'categorical_cross_entropy',epochs=1000, stepsize=1e-1)
 split = 1 # Split data into training and testing

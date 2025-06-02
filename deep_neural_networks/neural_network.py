@@ -95,6 +95,8 @@ NN for classification problem
 15. Compute confusion matrix[Done]
 16. Stop training process after training and validation accuracy both hit 90%[Done]
 17. Find out failure cases[Done]
+18. For batch normalization, check and verify that the gradient of the loss fn wrt to the bias is 0
+(since bias gets removed by normalization step!). Verify this.
 """
 
 import numpy as np
@@ -117,6 +119,10 @@ class MLFFNeuralNetwork():
         """ weights initialization between each successive layers"""
         self.numLayers = len(self.networkArchitecture)
         self.weightMatrixList = []
+        self.gammaList = []
+        self.betaList = []
+        self.runMeanList = []
+        self.runVarList = []
         self.numParamsEachDenseLayer = []
         for ele in range(self.numLayers-1):
             """Weight matrix from layer l to layer l+1 """
@@ -127,12 +133,33 @@ class MLFFNeuralNetwork():
             # weightMatrix = np.zeros((numNodesLayerLplus1,numNodesLayerL+1),dtype=np.float32) # +1 is for the bias term
             """ Initialize the weights matrix to random uniformly drawn values from 0 to 1"""
             # weightMatrix = np.random.rand(numNodesLayerLplus1,numNodesLayerL+1) # +1 is for the bias term
+            """ Weight initialization using He method"""
             fan_in = numNodesLayerL
             scalingFactorHeInit = (np.sqrt(2/fan_in)) # This is the scaling for ReLU activation functions in the DNN
-            weightMatrix = np.random.randn(numNodesLayerLplus1,numNodesLayerL+1) * scalingFactorHeInit # +1 is for the bias term
-            numParamsEachDenseLayer = weightMatrix.size
+            weightMatrix = np.random.randn(numNodesLayerLplus1,numNodesLayerL+1) #* scalingFactorHeInit # +1 is for the bias term
+            # Batch Normalization (BN) not defined for input and output layers
+            if (self.networkArchitecture[ele][2] == 1): # If BN is enabled for a hidden layer
+                gammaScaling = np.ones((numNodesLayerL,)) # This is the standard deviation parameter
+                betaShift = np.zeros((numNodesLayerL,)) # This is the mean parameter
+
+                """ Below 2 arrays runningMean and runningVar are not parameters for NN. So no gradients required for these"""
+                runningMean = np.zeros((numNodesLayerL,))
+                runningVar = np.ones((numNodesLayerL,))
+            else:
+                gammaScaling = np.empty([0])
+                betaShift = np.empty([0])
+
+                runningMean = np.empty([0])
+                runningVar = np.empty([0])
+
+
+            numParamsEachDenseLayer = weightMatrix.size + gammaScaling.size + betaShift.size
             self.numParamsEachDenseLayer.append(numParamsEachDenseLayer)
             self.weightMatrixList.append(weightMatrix)
+            self.gammaList.append(gammaScaling)
+            self.betaList.append(betaShift)
+            self.runMeanList.append(runningMean)
+            self.runVarList.append(runningVar)
 
     def set_model_params(self,modeGradDescent = 'online',batchsize = 1, costfn = 'categorical_cross_entropy',epochs = 100000, stepsize = 0.1):
         """ By default, it is set to online/stochastic mode of GD which has a batch size = 1"""
@@ -215,13 +242,16 @@ class MLFFNeuralNetwork():
         return costFunction
 
 
-    def forwardpass(self, trainDataSample):
+    def forwardpass(self, trainDataSample, trainOrTestString):
 
         """ Forward pass"""
         layerLOutput = trainDataSample
         numTrainingSamples = trainDataSample.shape[1]
         self.Ita = []
         self.outputEachlayer = []
+        self.ItaNormalized = []
+        self.batchMeanEachLayer = []
+        self.batchVarEachLayer = []
         ## Debug
         # import pickle
         # with open("weightMatrix.pkl", "rb") as file:
@@ -237,6 +267,33 @@ class MLFFNeuralNetwork():
             else:
                 weightMatrixLayerLminus1toL = self.weightMatrixList[ele3-1]
                 itaLayerL = weightMatrixLayerLminus1toL @ layerLminus1Output
+
+                if (self.networkArchitecture[ele3][2] == 1): # If BN is enabled for a hidden layer
+
+                    if trainOrTestString == 'train':
+                        batchMean = np.mean(itaLayerL,axis=1)
+                        batchVariance = np.var(itaLayerL,axis=1) # Computing variance instead of std so that division by small std can be taken care of
+                        lamda = 0.9 # Should be between 0 and 1. If batch size is too small, lamda should give more weight to past mean, since current mean will keep jumping with new batches. But if batch size is very large, then we can can give more weight to current mean estimate
+                        # Define running mean and running Var to be used later for testing and validation
+                        self.runMeanList[ele3] = lamda * self.runMeanList[ele3] + (1-lamda)*batchMean
+                        self.runVarList[ele3] = lamda * self.runVarList[ele3] + (1-lamda)*batchVariance
+                    else: # For test and validation data, use the running mean and variance obtained in training
+                        batchMean = self.runMeanList[ele3]
+                        batchVariance = self.runVarList[ele3]
+
+
+                    itaLayerLNormalized = (itaLayerL - batchMean[:,None])/np.sqrt(batchVariance[:,None])
+                    gammaScaling = self.gammaList[ele3][:,None]
+                    betaShift = self.betaList[ele3][:,None]
+                    itaLayerL = gammaScaling*itaLayerLNormalized + betaShift
+
+
+
+                else:
+                    itaLayerLNormalized = np.empty([0])
+                    batchMean = np.empty([0])
+                    batchVariance = np.empty([0])
+
                 activationFn = self.networkArchitecture[ele3][1] # Activation function name
                 layerLOutput = self.activation_function(itaLayerL,activationFn) # gives output of the activation function for the ita input
 
@@ -244,6 +301,10 @@ class MLFFNeuralNetwork():
                 layerLminus1Output[1::,:] = layerLOutput
 
                 self.Ita.append(itaLayerL) # ita is not stored for input layer. It is stored for all other layers.
+                self.ItaNormalized.append(itaLayerLNormalized) # Not stored for input layer
+                self.batchMeanEachLayer.append(batchMean) # Not stored for input layer
+                self.batchVarEachLayer.append(batchVariance) # Not stored for input layer
+
             self.outputEachlayer.append(layerLminus1Output) # Output for each layer
         self.predictedOutput = layerLOutput
 
@@ -257,7 +318,7 @@ class MLFFNeuralNetwork():
         # ele4 loop goes from layer L-1(output) to layer 0 input
         for ele4 in range(self.numLayers-1,0,-1):
             if (ele4 == self.numLayers-1):
-                """ Final output layer"""
+                """ Final output layer""" # Does not have BN
                 if (self.costfn == 'categorical_cross_entropy'):
                     errorLayerL = self.predictedOutput - trainDataLabel # (y - d) For softmax activation function with categorical cross entropy cost function. Used for classificcation tasks.
                 elif (self.costfn == 'squared_error'):
@@ -272,6 +333,8 @@ class MLFFNeuralNetwork():
                 activationFn = self.networkArchitecture[ele4][1]
                 activationFnDerivative = self.derivative_activation_function(itaLayerL,activationFn)
                 errorLayerL = (weightMatrixLayerLtoLplus1[:,1::].T @ errorLayerLplus1) * activationFnDerivative # Derivative of the activation function at layer 3 evaluated at input vector at layer 3(nl)
+                if (self.networkArchitecture[ele4][2] == 1): # If BN is enabled for a hidden layer
+                    errorLayerL = errorLayerL * (self.gammaList[ele4][:,None] / np.sqrt(self.batchVarEachLayer[ele4-1][:,None]))
                 errorLayerLplus1 = errorLayerL
 
             self.errorEachLayer.append(errorLayerLplus1) # These error arrays are packed from layer L-1 down to 1 and not from 1 to L-1. They are arranged in reverse order. (layers start from 0 to L-1)
@@ -282,7 +345,7 @@ class MLFFNeuralNetwork():
     def compute_forward_backward_pass(self, trainDataSample, trainDataLabel):
 
         """ Forward pass"""
-        self.forwardpass(trainDataSample)
+        self.forwardpass(trainDataSample,'train')
 
         """ Cost function computation"""
         self.costFunctionValue = self.compute_loss_function(trainDataLabel)
@@ -305,6 +368,14 @@ class MLFFNeuralNetwork():
             gradientCostFnwrtWeights = (self.errorEachLayer[count] @ self.outputEachlayer[ele4].T)/batchSize # Division becuase we want to get the mean of the gradients across all data points
             self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights # Gradient descent step
             count -= 1
+
+
+        for ele5 in range(1,self.numLayers): # This starts from 1 since 0th layer i.e input layer anyways has no BN
+            if (self.networkArchitecture[ele5][2] == 1):
+                gradientCostFnwrtGammaScaling = np.mean(self.errorEachLayer[self.numLayers-1-ele5] * self.ItaNormalized[ele5-1], axis=1) # delta^l * ita^^l
+                gradientCostFnwrtBetaShift = np.mean(self.errorEachLayer[self.numLayers-1-ele5], axis=1) # delta^l is arranged in reverse order
+                self.gammaList[ele5] = self.gammaList[ele5] - self.stepsize*gradientCostFnwrtGammaScaling
+                self.betaList[ele5] = self.betaList[ele5] - self.stepsize*gradientCostFnwrtBetaShift
 
 
     def train_nn(self,trainData,trainDataLabels,split = 1):
@@ -422,7 +493,7 @@ class MLFFNeuralNetwork():
 
     def predict_nn(self,testData):
          # testData should be of shape numFeatures x numTestcases
-        self.forwardpass(testData)
+        self.forwardpass(testData,'test')
         self.testDataPredictedLabels = self.predictedOutput
 
 
@@ -437,7 +508,7 @@ class MLFFNeuralNetwork():
 
     def compute_train_loss_acc(self):
         """ Compute training loss and accuracy on the training data again with the weights obtained at the end of each epoch"""
-        self.forwardpass(self.trainData) # Compute forward pass output on the entire training data after each epoch
+        self.forwardpass(self.trainData,'test') # Compute forward pass output on the entire training data after each epoch
         self.trainingLoss = self.compute_loss_function(self.trainDataLabels)
         self.trainingLossArray.append(self.trainingLoss) # Keep appending the cost/loss function value for each epoch
         self.get_accuracy(self.trainDataLabels, self.predictedOutput)
@@ -509,6 +580,22 @@ Good reference docs for GPU parallelization:
 
     https://numba.readthedocs.io/en/stable/cuda/index.html
 
+26/05/2025
+Achieved 85% training and validation accuracy for the Fashion MNIST dataset!
+
+Finally after nearly 2 months of struggle, I have got a decent accuracy for the fashion MNIST dataset with the CNN! The issue was with the weight initialization! My back propagation is absolutely correct! (previously, I was doubting my backporpagation implementation!) Now, I'm able to achieve about 85% train and validation accuracy with a few epochs! The following the changes which helped in achieveing this.
+
+He initialization instead of normal distribution initialization
+He initialization is basically scaling the normal distribution by the sqrt of the nunber of inputs to that layer and sometimes also a multificative gain factor. This gain factor is a function of the activation function used. For example, ReLU has sqrt(2). tanh has 5/3 and so on. Currently, I have scaled based on ReLU only! Need to extend it to other activations as well.
+
+Changed the loss and gradient computation from sum of all datapoints to mean of all datapoints
+The loss now is the mean loss of all data points and the gradient is the mean of the gradients of all data points. Now we see reasonable loss values and also the netwrok starts respoding due to more reasonable gradeint values (with sum, gradients blow up)
+
+Implemented the prediction/test also as a batch mode. Now the testing time also is reduced! Previously only the training was parallelized and testing was given as a bulk. Due to this the system was getting stuck or crashing. Now I have parallelized the testing part as well.
+
+Next I will implement the batch normalization to further improve the accuracy
+
+Action Items
 
 1. Ensure size of kernel at any stage is smaller than size of input. Handle this gracefully, else it might crash [Done]
 2. All pool layers have to be same type. Either all have to be maxpool or all have to be avg pool(for now). I'm not handling a mix of max and avg pools in this script
@@ -567,6 +654,10 @@ where ita_^^ = alpha (ita_^) + beta, ita_^ = (ita-mu)/sigma, where mu and sigma 
 I have derived this, but need to verify!
 31. Understand the embedding matrix for LLMs. Why is it used?
 
+
+Batch normalization is used only for hidden layers. It should not be used for the final output
+layer before softmax activation!
+
 """
 
 from cnn_gpu_kernels.parallelize_across_datapoints import cnn_convolve2d_gpu, cnn_backward_convolve2d_gpu, \
@@ -618,7 +709,7 @@ class ConvolutionalNeuralNetwork():
             inputHeight, inputWid = (inputHeight-poolSize)//poolStride + 1, (inputWid-poolSize)//poolStride + 1
 
         numNodesPostFlatten = (inputHeight * inputWid * inputDepth)#.astype(np.int32)
-        flattenLayer = [(numNodesPostFlatten,'Identity')]
+        flattenLayer = [(numNodesPostFlatten,'Identity',0)] # input to dense layer will not have BN
         denseLayerArchitecture = flattenLayer + self.denseLayer + self.outputLayer
         # self.numDenseLayers = len(self.denseLayerArchitecture)
         """ Dense layer weights initialization"""
@@ -626,7 +717,7 @@ class ConvolutionalNeuralNetwork():
 
         self.ParamsAllLayers = self.numParamsEachConvLayer + self.mlffnn.numParamsEachDenseLayer # Append the lists of learnable parameters of convolution and dense layers
         self.totalParamsAllLayers = sum(self.ParamsAllLayers)
-        print('Total trainable params: {0} ({1:.2f} KB) '.format(self.totalParamsAllLayers,(self.totalParamsAllLayers*4)/1024))
+        print('\n Total trainable params: {0} ({1:.2f} KB) \n'.format(self.totalParamsAllLayers,(self.totalParamsAllLayers*4)/1024))
         """ Flag to run CNN on CPU or GPU"""
         self.runCNNCPU = False # True to run on CPU and False to run on GPU
         if (self.runCNNCPU == False):
@@ -637,7 +728,7 @@ class ConvolutionalNeuralNetwork():
 
 
 
-    def forwardpass_cnn(self, trainDataImage):
+    def forwardpass_cnn(self, trainDataImage, trainOrTestString):
         """ Check indices of ele3 for forward pass"""
         """ Forward pass CNN"""
         layerLOutput = trainDataImage
@@ -709,7 +800,7 @@ class ConvolutionalNeuralNetwork():
 
 
         flattenOutputConvLayers = layerLminus1Output2d.T # For batch/mini batch mode, we will have to make it 2 D and not flatten as 1D
-        self.mlffnn.forwardpass(flattenOutputConvLayers)
+        self.mlffnn.forwardpass(flattenOutputConvLayers, trainOrTestString)
         self.predictedOutputcnn = self.mlffnn.predictedOutput
 
 
@@ -793,7 +884,7 @@ class ConvolutionalNeuralNetwork():
 
         """ Forward pass"""
         t1 = time.time()
-        self.forwardpass_cnn(trainDataSample)
+        self.forwardpass_cnn(trainDataSample, 'train')
         t2 = time.time()
         # print('Time taken for forward pass = {0:.2f} s'.format(t2-t1))
 
@@ -952,7 +1043,7 @@ class ConvolutionalNeuralNetwork():
 
         numvalidationData = testData.shape[3]
         if (self.runCNNCPU == True):
-            self.forwardpass_cnn(testData)
+            self.forwardpass_cnn(testData,'test')
             self.testDataPredictedLabels = self.predictedOutputcnn
         else:
             if (self.parallelizeAcrossData == True):
@@ -971,7 +1062,7 @@ class ConvolutionalNeuralNetwork():
                 else:
                     testDataSample = testData[:,:,:,startIndex::]
 
-                self.forwardpass_cnn(testDataSample)
+                self.forwardpass_cnn(testDataSample,'test')
 
                 if (startIndex+batchsize <= numvalidationData):
                     predictedOutputAllTestData[:,startIndex:startIndex+batchsize] = self.predictedOutputcnn
@@ -1034,7 +1125,7 @@ class ConvolutionalNeuralNetwork():
 
         numTrainingData = self.trainData.shape[3]
         if (self.runCNNCPU == True):
-            self.forwardpass_cnn(self.trainData) # Compute forward pass output on the entire training data after each epoch
+            self.forwardpass_cnn(self.trainData,'test') # Compute forward pass output on the entire training data after each epoch
             self.trainingLoss = self.mlffnn.compute_loss_function(self.trainDataLabels)
             self.trainingLossArray.append(self.trainingLoss) # Keep appending the cost/loss function value for each epoch
             self.mlffnn.get_accuracy(self.trainDataLabels, self.predictedOutputcnn)
@@ -1055,7 +1146,7 @@ class ConvolutionalNeuralNetwork():
                 else:
                     trainDataSample = self.trainData[:,:,:,startIndex::]
 
-                self.forwardpass_cnn(trainDataSample)
+                self.forwardpass_cnn(trainDataSample,'test')
 
                 if (startIndex+batchsize <= numTrainingData):
                     predictedOutputAllTrainData[:,startIndex:startIndex+batchsize] = self.predictedOutputcnn
