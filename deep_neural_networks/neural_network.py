@@ -152,7 +152,15 @@ nodes for that layer, 2nd argument is the activation function for that layer, no
 whether BN is to be enabled or disabled for that layer. The input and output layers always should have
 BN set to 0!
 
-Next I will implement the Batch Normalization for CNN.
+Next I will implement the Batch Normalization for CNN.[Done]
+
+27/06/2025
+I have tested the iris dataset with a simple ANN and batch normalization.
+With the batch normalization, the training and validation accuracy have improved and it is hitting
+95% training and validation accuracy. However, the test accuracy seems to be badly hit! It has
+dropped to 83%. Is it the running mean and variance which is causing this issue? I need to check this.
+
+Also, CNN has some bugs in updating the kernels weights[I believe I have now fixed the bug]
 
 
 
@@ -343,8 +351,11 @@ class MLFFNeuralNetwork():
                         batchMean = self.runMeanList[ele3]
                         batchVariance = self.runVarList[ele3]
 
+                        # batchMean = np.mean(itaLayerL,axis=1)
+                        # batchVariance = np.var(itaLayerL,axis=1)
 
-                    itaLayerLNormalized = (itaLayerL - batchMean[:,None])/np.sqrt(batchVariance[:,None])
+                    epsillon = 1e-8
+                    itaLayerLNormalized = (itaLayerL - batchMean[:,None])/np.sqrt(batchVariance[:,None] + epsillon)
                     gammaScaling = self.gammaList[ele3][:,None]
                     betaShift = self.betaList[ele3][:,None]
                     itaLayerL = gammaScaling*itaLayerLNormalized + betaShift
@@ -396,7 +407,8 @@ class MLFFNeuralNetwork():
                 activationFnDerivative = self.derivative_activation_function(itaLayerL,activationFn)
                 errorLayerL = (weightMatrixLayerLtoLplus1[:,1::].T @ errorLayerLplus1) * activationFnDerivative # Derivative of the activation function at layer 3 evaluated at input vector at layer 3(nl)
                 if (self.networkArchitecture[ele4][2] == 1): # If BN is enabled for a hidden layer
-                    errorLayerL = errorLayerL * (self.gammaList[ele4][:,None] / np.sqrt(self.batchVarEachLayer[ele4-1][:,None]))
+                    epsillon = 1e-8
+                    errorLayerL = errorLayerL * (self.gammaList[ele4][:,None] / np.sqrt(self.batchVarEachLayer[ele4-1][:,None] + epsillon))
                 errorLayerLplus1 = errorLayerL
 
             self.errorEachLayer.append(errorLayerLplus1) # These error arrays are packed from layer L-1 down to 1 and not from 1 to L-1. They are arranged in reverse order. (layers start from 0 to L-1)
@@ -431,7 +443,7 @@ class MLFFNeuralNetwork():
             self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights # Gradient descent step
             count -= 1
 
-
+        # Can ideally optimize this loop and put it into above loop as well. I will do this later
         for ele5 in range(1,self.numLayers): # This starts from 1 since 0th layer i.e input layer anyways has no BN
             if (self.networkArchitecture[ele5][2] == 1):
                 gradientCostFnwrtGammaScaling = np.mean(self.errorEachLayer[self.numLayers-1-ele5] * self.ItaNormalized[ele5-1], axis=1) # delta^l * ita^^l
@@ -534,7 +546,7 @@ class MLFFNeuralNetwork():
             if (self.validationData.shape[1] != 0): # There is some validation data to test model
                 print('\nEpoch: {0}/{1}'.format(ele1+1, self.epochs))
                 print('train_loss: {0:.1f}, val_loss: {1:.1f}, train_accuracy: {2:.1f}, val_accuracy: {3:.1f}'.format(self.trainingLoss, self.validationLoss, self.trainAccuracy, self.validationAccuracy))
-                if ((self.trainAccuracy > 90) and (self.validationAccuracy > 90)):
+                if ((self.trainAccuracy > 94) and (self.validationAccuracy > 94)): # 94
                     break
             else: # There is no validation data to test model
                 print('Epoch: {0}/{1}, train_loss: {2:.1f}'.format(ele1+1, self.epochs, self.trainingLoss))
@@ -715,6 +727,12 @@ The bias term we add in the batch normalization process, itself takes care of th
 where ita_^^ = alpha (ita_^) + beta, ita_^ = (ita-mu)/sigma, where mu and sigma are the mean and variance across the data points for that particular node/neuron.
 I have derived this, but need to verify!
 31. Understand the embedding matrix for LLMs. Why is it used?
+32. Plot running mean and variance across batches
+33. Numrical gradient check?
+34. Regularization and dropouts, adam optimizer
+35. check if gradient wrt bias term is 0 with BN enabled
+36. What shoud be the scaling factor for the l2 regularization
+37. Is BN implemented correctly in CNN?
 
 
 Batch normalization is used only for hidden layers. It should not be used for the final output
@@ -749,24 +767,54 @@ class ConvolutionalNeuralNetwork():
         self.bias = []
         self.numConvLayers = len(self.convLayer)
         self.numParamsEachConvLayer = []
+        self.gammaList = []
+        self.betaList = []
+        self.runMeanList = []
+        self.runVarList = []
 
         for ele in range(self.numConvLayers):
             """ Conv layer"""
             numFilters = self.convLayer[ele][0]
             filterSize = self.convLayer[ele][1] # FilterSize/KernelSize
-            fan_in = filterSize * filterSize * inputDepth
-            scalingFactorHeInit = np.sqrt(2/fan_in) # For ReLU activation function only! This changes based on the activation function used
-            kernelWeights = np.random.randn(numFilters,filterSize,filterSize,inputDepth) * scalingFactorHeInit #(0.01**(ele+1))#* 0.01# 1/np.sqrt(3*inputDepth)
-            bias = np.random.randn(numFilters) * scalingFactorHeInit
-            numParams = kernelWeights.size + bias.size
+
+            if (self.convLayer[ele][3] == 1): # If BN is enabled for a hidden layer
+                kernelWeights = np.random.randn(numFilters,filterSize,filterSize,inputDepth) # +1 is for the bias term
+                bias = np.random.randn(numFilters)
+            else:
+                """ Weight initialization using He method"""
+                fan_in = filterSize * filterSize * inputDepth
+                scalingFactorHeInit = np.sqrt(2/fan_in) # For ReLU activation function only! This changes based on the activation function used
+                kernelWeights = np.random.randn(numFilters,filterSize,filterSize,inputDepth) * scalingFactorHeInit
+                bias = np.random.randn(numFilters) * scalingFactorHeInit
+            # Below is the size/dimensions of the output post convolution
+            inputDepth = numFilters
+            inputHeight, inputWid = inputHeight-filterSize+1, inputWid-filterSize+1 # Post "valid" convolution
+
+            if (self.convLayer[ele][3] == 1):
+                gammaScaling = np.ones((inputDepth,inputHeight,inputWid)) # This is the standard deviation parameter
+                betaShift = np.zeros((inputDepth,inputHeight,inputWid)) # This is the mean parameter
+                """ Below 2 arrays runningMean and runningVar are not parameters for NN. So no gradients required for these"""
+                runningMean = np.zeros((inputDepth,inputHeight,inputWid))
+                runningVar = np.ones((inputDepth,inputHeight,inputWid))
+            else:
+                gammaScaling = np.empty([0])
+                betaShift = np.empty([0])
+                runningMean = np.empty([0])
+                runningVar = np.empty([0])
+
+            numParams = kernelWeights.size + bias.size + gammaScaling.size + betaShift.size
             self.numParamsEachConvLayer.append(numParams)
             self.kernelWeights.append(kernelWeights)
             self.bias.append(bias)
-            inputDepth = numFilters
-            inputHeight, inputWid = inputHeight-filterSize+1, inputWid-filterSize+1 # Post "valid" convolution
+            self.gammaList.append(gammaScaling)
+            self.betaList.append(betaShift)
+            self.runMeanList.append(runningMean)
+            self.runVarList.append(runningVar)
+
             """ Pooling layer"""
             poolSize = self.poolLayer[ele][0]
             poolStride = self.poolLayer[ele][1]
+            # Below is the size/dimensions of the output post pooling
             """ Verify below formula once"""
             inputHeight, inputWid = (inputHeight-poolSize)//poolStride + 1, (inputWid-poolSize)//poolStride + 1
 
@@ -796,8 +844,11 @@ class ConvolutionalNeuralNetwork():
         layerLOutput = trainDataImage
         numTrainingSamples = trainDataImage.shape[3] # 1st dim is numChannels, 2nd and 3rd dim are height, width, 4th dim is number of such images
         self.ItaConv = []
+        self.ItaConvNormalized = []
         self.outputEachConvlayer = []
         self.maxPoolingIndexEachConvLayer = []
+        self.batchMeanEachLayer = []
+        self.batchVarEachLayer = []
 
         """Input layer"""
         # ele3 = 0, # Input/1st layer is taken as a dummy convolution layer but with no convolution
@@ -831,6 +882,31 @@ class ConvolutionalNeuralNetwork():
             t2 = time.time()
             # print('\n\tTime taken for forward pass convolution layer {0} is {1:.2f} ms'.format(ele3, (t2-t1)*1000))
             itaLayerL += self.bias[ele3-1][:,None,None,None]
+
+            if (self.convLayer[ele3-1][3] == 1): # If BN is enabled for a hidden layer
+
+                if trainOrTestString == 'train':
+                    batchMean = np.mean(itaLayerL,axis=3)
+                    batchVariance = np.var(itaLayerL,axis=3) # Computing variance instead of std so that division by small std can be taken care of
+                    lamda = 0.9 # Should be between 0 and 1. If batch size is too small, lamda should give more weight to past mean, since current mean will keep jumping with new batches. But if batch size is very large, then we can can give more weight to current mean estimate
+                    # Define running mean and running Var to be used later for testing and validation
+                    self.runMeanList[ele3-1] = lamda * self.runMeanList[ele3-1] + (1-lamda)*batchMean
+                    self.runVarList[ele3-1] = lamda * self.runVarList[ele3-1] + (1-lamda)*batchVariance
+                else: # For test and validation data, use the running mean and variance obtained in training
+                    batchMean = self.runMeanList[ele3-1]
+                    batchVariance = self.runVarList[ele3-1]
+
+                epsillon = 1e-8
+                itaLayerLNormalized = (itaLayerL - batchMean[:,:,:,None])/np.sqrt(batchVariance[:,:,:,None] + epsillon)
+                gammaScaling = self.gammaList[ele3-1][:,:,:,None]
+                betaShift = self.betaList[ele3-1][:,:,:,None]
+                itaLayerL = gammaScaling*itaLayerLNormalized + betaShift
+
+            else:
+                itaLayerLNormalized = np.empty([0])
+                batchMean = np.empty([0])
+                batchVariance = np.empty([0])
+
             activationFn = self.convLayer[ele3-1][2] # Activation function name
             layerLOutput = self.mlffnn.activation_function(itaLayerL,activationFn) # gives output of the activation function for the ita input
             t5 = time.time()
@@ -846,8 +922,12 @@ class ConvolutionalNeuralNetwork():
             t6 = time.time()
             # print('\n\tTime taken for forward pass Pooling layer {0} is {1:.2f} ms'.format(ele3, (t6-t5)*1000))
             self.ItaConv.append(itaLayerL) # ita is not stored for input layer. It is stored for all other layers.
+            self.ItaConvNormalized.append(itaLayerLNormalized)
+            self.batchMeanEachLayer.append(batchMean) # Not stored for input layer
+            self.batchVarEachLayer.append(batchVariance) # Not stored for input layer
             self.outputEachConvlayer.append(layerLminus1Output) # Output for each layer. Stored post pooling
             self.maxPoolingIndexEachConvLayer.append(self.maxPoolingIndex)
+
 
 
         numChannelsLastConvLayer = layerLminus1Output.shape[0]
@@ -901,8 +981,12 @@ class ConvolutionalNeuralNetwork():
         activationFn = self.convLayer[-1][2] # Activation fn of last convolutional layer
         activationFnDerivative = self.mlffnn.derivative_activation_function(itaLayerL,activationFn)
         errorLayerLplus1 = errorLastConvLayerPrePool * activationFnDerivative
+        if (self.convLayer[-1][3] == 1): # If BN is enabled for last conv layer
+            epsillon = 1e-8
+            errorLayerLplus1 = errorLayerLplus1 * (self.gammaList[-1][:,:,:,None] / np.sqrt(self.batchVarEachLayer[-1][:,:,:,None] + epsillon))
 
         self.errorEachConvLayer = []
+        self.errorEachConvLayer.append(errorLayerLplus1) # Appending the error of last conv layer
         # ele4 loop goes from layer L-1(output) to layer 0 input
         for ele4 in range(self.numConvLayers-1,0,-1):
             kernelWeightsLayerL = self.kernelWeights[ele4]
@@ -936,6 +1020,10 @@ class ConvolutionalNeuralNetwork():
             t10 = time.time()
             # print('\n\tTime taken for backward pass Pooling layer {0} is {1:.2f} ms'.format(ele4, (t10-t9)*1000))
             errorLayerLplus1 = errorLayerLPrePool * activationFnDerivative
+            if (self.convLayer[ele4-1][3] == 1): # If BN is enabled for last conv layer
+                epsillon = 1e-8
+                errorLayerLplus1 = errorLayerLplus1 * (self.gammaList[ele4-1][:,:,:,None] / np.sqrt(self.batchVarEachLayer[ele4-1][:,:,:,None] + epsillon))
+
 
             self.errorEachConvLayer.append(errorLayerLplus1) # These error arrays are packed from layer L-1 down to 1 and not from 1 to L-1. They are arranged in reverse order. (layers start from 0 to L-1)
             # Errors/delta obtained for all the layers from 2 to L
@@ -977,9 +1065,8 @@ class ConvolutionalNeuralNetwork():
         # dJ/dWl_ij = deltal+1_j * flip(yi_l)
         # gradient # dJ/dwij for all i,j
 
-        """ Currently this dJ/dWl_ij  is computed per training sample or online mode of GD. In future, I will extend to batch and mini batch mode of GD"""
         count = -1
-        for ele4 in range(self.numConvLayers-1):
+        for ele4 in range(self.numConvLayers):
             if (self.runCNNCPU == True):
                 gradientCostFnwrtKernelWeights = self.cnn_gradient_convolve2d(np.flip(self.outputEachConvlayer[ele4],axis=(1,2)), self.errorEachConvLayer[count], convMode='valid')
             else:
@@ -992,9 +1079,19 @@ class ConvolutionalNeuralNetwork():
             self.kernelWeights[ele4] = self.kernelWeights[ele4] - self.mlffnn.stepsize*gradientCostFnwrtKernelWeightsAllDataPoints # Gradient descent step
             gradientCostFnwrtBias = np.mean(self.errorEachConvLayer[count],axis=(1,2,3)) #np.sum(self.errorEachConvLayer[count],axis=(1,2,3))
             self.bias[ele4] = self.bias[ele4] - self.mlffnn.stepsize*gradientCostFnwrtBias # Gradient descent step
+
+            if (self.convLayer[ele4][3] == 1): # If BN is enabled, update gamma and beta
+                gradientCostFnwrtGammaScaling = np.mean(self.errorEachConvLayer[count] * self.ItaConvNormalized[ele4], axis=-1) # delta^l * ita^^l
+                gradientCostFnwrtBetaShift = np.mean(self.errorEachConvLayer[count], axis=-1) # delta^l is arranged in reverse order
+                self.gammaList[ele4] = self.gammaList[ele4] - self.mlffnn.stepsize*gradientCostFnwrtGammaScaling
+                self.betaList[ele4] = self.betaList[ele4] - self.mlffnn.stepsize*gradientCostFnwrtBetaShift
+
             count -= 1
 
         self.mlffnn.update_weights()
+        # print('gradientCostFnwrtKernelWeightsAllDataPoints', gradientCostFnwrtKernelWeightsAllDataPoints[10,1,2,25])
+        # print('kernel weight [2]', self.kernelWeights[2][10,1,2,25])
+
 
 
 
