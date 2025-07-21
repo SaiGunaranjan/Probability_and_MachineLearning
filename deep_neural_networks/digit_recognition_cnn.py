@@ -5,16 +5,17 @@ Created on Tue Sep  3 23:11:52 2024
 @author: Sai Gunaranjan
 """
 
-""" In this script, I have performed digit classification of MNIST dataset
-(https://www.kaggle.com/datasets/hojjatk/mnist-dataset) and achieved 90% accuracy
-on the test data. By trial and erro, I found that an ANN architecture with 1 hidden layer
-with 100 neurons and batch mode of GD with stepsize of 1e-6 is required to train the model to achive
-90% traning accuracy, validation accuracy and testing accuracy.
-Even though, I have given 10000 epochs, the model achieves 90% accuracy after about 1541 epochs.
+"""
+
+In this script, I have tested my implementation of the CNN(includinglearning through backprop)
+on the MNIST dataset. My implementation worked perfectly! I was able to achieve a training accuracy
+of 93%! I used the CNN architecture as given by far1din in his CNN video lecture.
+Link:
+https://www.youtube.com/watch?v=JboZfxUjLSk&list=PL1sQgSTcAaT7MbcLWacjsqoOQvqzMdUWg&index=1
 
 The input images are 8 bit quantized values and have values ranging from 0 to 255.
 One important aspect I learned in this exercise is that, we need to normalize the input image
-by 255 to ensure the input data lies between 0 to 1. Normlaizing this way, helps ensure stability
+by 255 to ensure the input data lies between 0 to 1. Normalizing this way, helps ensure stability
 of the weights.
 
 
@@ -40,8 +41,9 @@ import struct
 from array import array
 from os.path  import join
 import tensorflow as tf
-from neural_network import MLFFNeuralNetwork
+from neural_network import ConvolutionalNeuralNetwork
 import matplotlib.pyplot as plt
+import time as time
 
 
 plt.close('all')
@@ -142,49 +144,64 @@ for i in range(0, 5):
 # show_images(images_2_show, titles_2_show)
 
 
-X_data = ((x_train.reshape(60000,28*28)).T)/255
+X_data = np.transpose(x_train[:,:,:,None],(3,1,2,0))/255 # numChannels x h x w x numData
 Y_data = np.array(y_train)
 Y_data = tf.keras.utils.to_categorical(Y_data,10) # Since there are 28*28 features
 Y_data = Y_data.T # [dimOneHotVector, NumberOfFeatureVectors]
-""" List of number of nodes, acivation function pairs for each layer.
-1st element in architecture list is input, last element is output"""
-numInputNodes = X_data.shape[0]
 numOutputNodes = Y_data.shape[0]
-networkArchitecture = [(numInputNodes,'Identity',0), (100,'ReLU',1), (numOutputNodes,'softmax',0)]
-mlffnn = MLFFNeuralNetwork(networkArchitecture)
-""" If validation loss is not changing, try reducing the learning rate"""
-# mlffnn.set_model_params(modeGradDescent = 'batch',costfn = 'categorical_cross_entropy',epochs=10000, stepsize=1e-6) # With no batch normalization and no He initialization!
-# mlffnn.set_model_params(modeGradDescent = 'online',costfn = 'categorical_cross_entropy',epochs=6000, stepsize=0.0001)
-mlffnn.set_model_params(modeGradDescent = 'mini_batch',batchsize=32, costfn = 'categorical_cross_entropy',epochs=10000, stepsize=1e-3) # With batch normalization
-"""batchsize should be a power of 2"""
-# mlffnn.set_model_params(modeGradDescent = 'mini_batch',batchsize = 2048, costfn = 'categorical_cross_entropy',epochs=1000, stepsize=1e-1)
-split = 1 # Split data into training and testing
-numDataPoints = X_data.shape[1]
-numTrainingData = int(split*numDataPoints)
-trainData = X_data[:,0:numTrainingData]
-trainDataLabels = Y_data[:,0:numTrainingData]
-mlffnn.train_nn(trainData,trainDataLabels,split=0.8)
+""" Define CNN architecture"""
 
-X_data = ((x_test.reshape(10000,28*28)).T)/255
+""" Reference architecture from:
+    https://www.youtube.com/watch?v=JboZfxUjLSk&list=PL1sQgSTcAaT7MbcLWacjsqoOQvqzMdUWg&index=1"""
+
+#(#filters, size of kernel(length), activation function)
+convLayer = [(2,5,'ReLU'), (4,3,'sigmoid')] # Len of this list is the number of convolutional layers
+poolLayer = [(2,2,'maxpool'), (2,2,'maxpool')]
+#(#nodes, activation function)
+denseLayer = [] # Len of this list indicates number of hidden layers
+inputShape = (1,28,28) # Numchannles, l, w
+outputLayer = [(numOutputNodes,'softmax')]
+cnn = ConvolutionalNeuralNetwork(inputShape, convLayer, poolLayer, denseLayer, outputLayer)
+""" If validation loss is not changing, try reducing the learning rate"""
+# cnn.mlffnn.set_model_params(modeGradDescent = 'online',costfn = 'categorical_cross_entropy',epochs=10, stepsize=1e-6)
+cnn.mlffnn.set_model_params(modeGradDescent = 'mini_batch',batchsize = 256,costfn = 'categorical_cross_entropy',epochs=1000, stepsize=1e-3) #stepsize=1e-3 is even better #stepsize=1e-4 is better, stepsize=1e-6 is very slow
+
+split = 1 # Make it back to 1# Split data into training and testing
+numDataPoints = X_data.shape[3]
+numTrainingData = int(split*numDataPoints)
+trainData = X_data[:,:,:,0:numTrainingData]
+trainDataLabels = Y_data[:,0:numTrainingData]
+
+tstart = time.time()
+
+cnn.train_cnn(trainData,trainDataLabels,split=0.8)
+
+X_data = np.transpose(x_test[:,:,:,None],(3,1,2,0))/255  # numChannels x h x w x numData
 Y_data = np.array(y_test)
 Y_data = tf.keras.utils.to_categorical(Y_data,10) # Since there are 28*28 features
 Y_data = Y_data.T # [dimOneHotVector, NumberOfFeatureVectors]
 classLabels = [str(ele) for ele in range(10)]
 testData = X_data
 testDataLabels = Y_data
-mlffnn.predict_nn(testData)
-mlffnn.get_accuracy(testDataLabels, mlffnn.testDataPredictedLabels, printAcc=True)
-mlffnn.plot_confusion_matrix(testDataLabels, mlffnn.testDataPredictedLabels, classLabels)
+numTestingData = testData.shape[3]
+cnn.predict_cnn(testData)
+cnn.mlffnn.get_accuracy(testDataLabels, cnn.testDataPredictedLabels, printAcc=True)
+cnn.mlffnn.plot_confusion_matrix(testDataLabels, cnn.testDataPredictedLabels, classLabels)
+
+tend = time.time()
+
+timeTrainTest = (tend - tstart)/(60*60)
+print('Total time taken for training {0} examples and testing {1} examples = {2:.2f} hours'.format(numTrainingData, numTestingData, timeTrainTest))
 
 plt.figure(2,figsize=(20,10),dpi=200)
 plt.subplot(1,2,1)
 plt.title('Training loss vs epochs')
-plt.plot(mlffnn.trainingLossArray)
+plt.plot(cnn.trainingLossArray)
 plt.xlabel('epochs')
 plt.grid(True)
 
 plt.subplot(1,2,2)
 plt.title('Validation loss vs epochs')
-plt.plot(mlffnn.validationLossArray)
+plt.plot(cnn.validationLossArray)
 plt.xlabel('epochs')
 plt.grid(True)
