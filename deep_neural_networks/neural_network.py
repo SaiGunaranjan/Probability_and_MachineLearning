@@ -231,6 +231,10 @@ class MLFFNeuralNetwork():
             self.runMeanList.append(runningMean)
             self.runVarList.append(runningVar)
 
+        self.epsillon = 1e-8 # To take care of division by a 0 in the denominator
+
+
+
     def set_model_params(self,modeGradDescent = 'online',batchsize = 1, costfn = 'categorical_cross_entropy',epochs = 100000, stepsize = 0.1):
         """ By default, it is set to online/stochastic mode of GD which has a batch size = 1"""
         self.modeGradDescent = modeGradDescent
@@ -240,7 +244,6 @@ class MLFFNeuralNetwork():
         # Define batch size only for mini_batch mode of gradient descent
         if (self.modeGradDescent == 'mini_batch'):
             self.batchsize = batchsize # Batch size is typically a power of 2
-
 
 
 
@@ -354,8 +357,8 @@ class MLFFNeuralNetwork():
                         # batchMean = np.mean(itaLayerL,axis=1)
                         # batchVariance = np.var(itaLayerL,axis=1)
 
-                    epsillon = 1e-8
-                    itaLayerLNormalized = (itaLayerL - batchMean[:,None])/np.sqrt(batchVariance[:,None] + epsillon)
+
+                    itaLayerLNormalized = (itaLayerL - batchMean[:,None])/np.sqrt(batchVariance[:,None] + self.epsillon)
                     gammaScaling = self.gammaList[ele3][:,None]
                     betaShift = self.betaList[ele3][:,None]
                     itaLayerL = gammaScaling*itaLayerLNormalized + betaShift
@@ -407,8 +410,7 @@ class MLFFNeuralNetwork():
                 activationFnDerivative = self.derivative_activation_function(itaLayerL,activationFn)
                 errorLayerL = (weightMatrixLayerLtoLplus1[:,1::].T @ errorLayerLplus1) * activationFnDerivative # Derivative of the activation function at layer 3 evaluated at input vector at layer 3(nl)
                 if (self.networkArchitecture[ele4][2] == 1): # If BN is enabled for a hidden layer
-                    epsillon = 1e-8
-                    errorLayerL = errorLayerL * (self.gammaList[ele4][:,None] / np.sqrt(self.batchVarEachLayer[ele4-1][:,None] + epsillon))
+                    errorLayerL = errorLayerL * (self.gammaList[ele4][:,None] / np.sqrt(self.batchVarEachLayer[ele4-1][:,None] + self.epsillon))
                 errorLayerLplus1 = errorLayerL
 
             self.errorEachLayer.append(errorLayerLplus1) # These error arrays are packed from layer L-1 down to 1 and not from 1 to L-1. They are arranged in reverse order. (layers start from 0 to L-1)
@@ -836,6 +838,7 @@ class ConvolutionalNeuralNetwork():
             # If batch size is much larger than number of channels/kernels, then use parallelize across data, else if number of kernels is larger
             # than batch size like in stochastic gradient descent, use parallelize across kernels
 
+        self.epsillon = 1e-8 # To take care of division by a 0 in the denominator
 
 
     def forwardpass_cnn(self, trainDataImage, trainOrTestString):
@@ -896,8 +899,8 @@ class ConvolutionalNeuralNetwork():
                     batchMean = self.runMeanList[ele3-1]
                     batchVariance = self.runVarList[ele3-1]
 
-                epsillon = 1e-8
-                itaLayerLNormalized = (itaLayerL - batchMean[:,:,:,None])/np.sqrt(batchVariance[:,:,:,None] + epsillon)
+
+                itaLayerLNormalized = (itaLayerL - batchMean[:,:,:,None])/np.sqrt(batchVariance[:,:,:,None] + self.epsillon)
                 gammaScaling = self.gammaList[ele3-1][:,:,:,None]
                 betaShift = self.betaList[ele3-1][:,:,:,None]
                 itaLayerL = gammaScaling*itaLayerLNormalized + betaShift
@@ -982,8 +985,7 @@ class ConvolutionalNeuralNetwork():
         activationFnDerivative = self.mlffnn.derivative_activation_function(itaLayerL,activationFn)
         errorLayerLplus1 = errorLastConvLayerPrePool * activationFnDerivative
         if (self.convLayer[-1][3] == 1): # If BN is enabled for last conv layer
-            epsillon = 1e-8
-            errorLayerLplus1 = errorLayerLplus1 * (self.gammaList[-1][:,:,:,None] / np.sqrt(self.batchVarEachLayer[-1][:,:,:,None] + epsillon))
+            errorLayerLplus1 = errorLayerLplus1 * (self.gammaList[-1][:,:,:,None] / np.sqrt(self.batchVarEachLayer[-1][:,:,:,None] + self.epsillon))
 
         self.errorEachConvLayer = []
         self.errorEachConvLayer.append(errorLayerLplus1) # Appending the error of last conv layer
@@ -1021,8 +1023,7 @@ class ConvolutionalNeuralNetwork():
             # print('\n\tTime taken for backward pass Pooling layer {0} is {1:.2f} ms'.format(ele4, (t10-t9)*1000))
             errorLayerLplus1 = errorLayerLPrePool * activationFnDerivative
             if (self.convLayer[ele4-1][3] == 1): # If BN is enabled for last conv layer
-                epsillon = 1e-8
-                errorLayerLplus1 = errorLayerLplus1 * (self.gammaList[ele4-1][:,:,:,None] / np.sqrt(self.batchVarEachLayer[ele4-1][:,:,:,None] + epsillon))
+                errorLayerLplus1 = errorLayerLplus1 * (self.gammaList[ele4-1][:,:,:,None] / np.sqrt(self.batchVarEachLayer[ele4-1][:,:,:,None] + self.epsillon))
 
 
             self.errorEachConvLayer.append(errorLayerLplus1) # These error arrays are packed from layer L-1 down to 1 and not from 1 to L-1. They are arranged in reverse order. (layers start from 0 to L-1)
@@ -1473,4 +1474,7 @@ class ConvolutionalNeuralNetwork():
                 maxInd[y, x] = np.argmax(region) # Needs to be unraveled
 
         return output, maxInd
+
+
+
 
