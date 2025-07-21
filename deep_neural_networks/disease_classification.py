@@ -78,7 +78,7 @@ Y_data = temp[:,132::].T
 1st element in architecture list is input, last element is output"""
 numInputNodes = X_data.shape[0]
 numOutputNodes = Y_data.shape[0]
-networkArchitecture = [(numInputNodes,'Identity'), (512,'ReLU'), (numOutputNodes,'softmax')]
+networkArchitecture = [(numInputNodes,'Identity',0), (512,'ReLU',0), (numOutputNodes,'softmax',0)] # BN not required since network is not very deep!
 mlffnn = MLFFNeuralNetwork(networkArchitecture)
 """ If validation loss is not changing, try reducing the learning rate"""
 # mlffnn.set_model_params(modeGradDescent = 'batch',costfn = 'categorical_cross_entropy',epochs=1000, stepsize=0.0001)
