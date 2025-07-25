@@ -1,0 +1,548 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Jul 21 19:09:26 2025
+
+@author: Sai Gunaranjan
+"""
+
+
+import numpy as np
+import time as time
+np.random.seed(0)
+from textfile_preprocessing import prepare_data, get_batch
+
+
+""" Recurrent Neural network (RNN)
+
+Implemented a stateful RNN, where the final hidden state after N timesteps feeds in as input hidden state for the
+next batch of data
+
+Trained on Harry Potter one chapter of text with:
+    1. batch size of 32, was able to hit train_loss: 2.2, val_loss: 3.2, train_accuracy: 56.1, val_accuracy: 42.5 after 1000 epochs
+    2. batch size of 1, was able to hit train_loss: 3.0, val_loss: 3.2, train_accuracy: 38.2, val_accuracy: 36.8
+"""
+
+class RecurrentNeuralNetwork():
+
+    def __init__(self, inputShape, numRNNLayers, outputShape, numTimeSteps):
+
+        # We will assume output shape to be same as input shape, since both input and output are characters or words
+        self.inputShape = inputShape
+        self.numRNNLayers = numRNNLayers
+        self.outputShape = outputShape
+        self.numTimeSteps = numTimeSteps
+        self.numTotalLayers = 1 + self.numRNNLayers + 1 # (1 for input, 1 for output, numRNNLayers)
+        """ Weight initialization"""
+
+        """ Xavier method of weight initialization for tanh activation for vanilla RNN"""
+        fan_in = self.inputShape
+        fan_out = self.inputShape # because I'm assuming all the weight matrices are square matrices of same shape for all layers
+        scalingFactorXavierInit = np.sqrt(2/(fan_in+fan_out)) * 5/3 # Xavier initialization for tanh activation
+        # Assuming all input vectors and hidden state vectors are same shape and for every layer as well!
+        self.Wxh = np.random.randn(self.inputShape, self.inputShape+1, self.numRNNLayers+1) * scalingFactorXavierInit # self.inputShape+1 absorbs the bias term to the Wxh matrix, self.numRNNLayers+1 is for the final output layer
+        self.Whh = np.random.randn(self.inputShape, self.inputShape, self.numRNNLayers+1) * scalingFactorXavierInit# +1 is for the final output layer
+        self.Whh[:,:,-1] = 0 # Final output layer doesnt have a hidden state input and hence Whh for final layer is 0
+        # self.biasVec = np.random.randn(self.inputShape, 1, self.numRNNLayers+1) * scalingFactorXavierInit
+
+
+
+
+    def set_model_params(self, batchsize = 32, epochs = 100000, stepsize = 0.1):
+        """ For RNN, we default to batch mode of gradient descent and categorical cross entropy cost function"""
+
+        self.epochs = epochs
+        self.stepsize = stepsize
+        self.batchsize = batchsize # Batch size is typically a power of 2
+
+
+    def preprocess_textfile(self,textfile):
+
+        self.params = prepare_data(textfile, n_segments = self.batchsize, seq_len = self.numTimeSteps)
+
+
+
+    def sigmoid(self,z):
+        return 1 / (1 + np.exp(-z))
+
+    def tanh(self,z):
+        # tanh = (np.exp(z) - np.exp(-z)) / (np.exp(z) + np.exp(-z))
+        ePowpz = np.exp(z)
+        ePowmz = np.exp(-z)
+        return (ePowpz - ePowmz) / (ePowpz + ePowmz)
+
+    def ReLU(self,z):
+        return np.maximum(0,z)
+
+    def softmax(self,z):
+        """ z has to be a vector"""
+        z = z - np.amax(z,axis=0)[None,:] # To avoid overflows while evaluating np.exp(z). Refer point 8 above
+        ePowz = np.exp(z)
+        return ePowz/np.sum(ePowz,axis=0)[None,:]
+
+
+
+    def sigmoid_derivative(self,z):
+        return self.sigmoid(z) * (1-self.sigmoid(z))
+
+    def tanh_derivative(self,z):
+        return 1 - (self.tanh(z)**2)
+
+    def ReLU_derivative(self,z):
+        return 1*(z>0) # Returns 0 for negative values, 1 for positive values
+
+    def activation_function(self, itaLayerL, activationFn):
+        if (activationFn == 'sigmoid'):
+            layerLOutput = self.sigmoid(itaLayerL)
+        elif (activationFn == 'tanh'):
+            layerLOutput = self.tanh(itaLayerL)
+        elif (activationFn == 'ReLU'):
+            layerLOutput = self.ReLU(itaLayerL)
+        elif (activationFn == 'softmax'):
+            layerLOutput = self.softmax(itaLayerL)
+
+        return layerLOutput
+
+    def derivative_activation_function(self, itaLayerL, activationFn):
+        if (activationFn == 'sigmoid'):
+            activationFnDerivative = self.sigmoid_derivative(itaLayerL)
+        elif (activationFn == 'tanh'):
+            activationFnDerivative = self.tanh_derivative(itaLayerL)
+        elif (activationFn == 'ReLU'):
+            activationFnDerivative = self.ReLU_derivative(itaLayerL)
+
+        return activationFnDerivative
+
+
+    def forwardpass_rnn(self, trainDataSample, hiddenState):
+
+        numTrainingSamples = trainDataSample.shape[2] # batch size, 1st dimension is sequence length, 2nd dimension is length of vector, 3rd dimension is batch size
+        self.hiddenStateMatrix = np.zeros((self.numRNNLayers+1, self.numTimeSteps+1, self.inputShape, numTrainingSamples),dtype=np.float32)
+        self.hiddenStateMatrix[:,0,:,:] = hiddenState # Write the hidden state at the final time step back to the inital time step for next batch
+        self.inputMatrixX = np.ones((self.numRNNLayers+2, self.numTimeSteps, self.inputShape+1, numTrainingSamples),dtype=np.float32) # self.inputShape+1 is for the bias
+        self.inputMatrixX[0,:,1::,:] = trainDataSample # 1st term is for the bias term
+        self.outputMatrix = np.zeros((self.numRNNLayers+1, self.numTimeSteps, self.inputShape, numTrainingSamples),dtype=np.float32)
+        self.ita = np.zeros((self.numRNNLayers+1, self.numTimeSteps, self.inputShape, numTrainingSamples),dtype=np.float32)
+
+        for ele2 in range(self.numTimeSteps):
+            for ele1 in range(self.numRNNLayers+1): # +1 is for the final output hidden layer with softmax
+                hiddenStateTminus1LayerLplus1 = self.hiddenStateMatrix[ele1,ele2,:,:]
+                hiddenStateTLayerL = self.inputMatrixX[ele1,ele2,:,:]
+                itaLayerLPlus1 = (self.Whh[:,:,ele1] @ hiddenStateTminus1LayerLplus1) + (self.Wxh[:,:,ele1] @ hiddenStateTLayerL)
+                if (ele1 != self.numRNNLayers): # All RNN layers have tanh/sigmoid activatio fn. Last layer has softmax activation fn
+                    hiddenStateTLayerLplus1 = self.activation_function(itaLayerLPlus1, 'tanh')
+                else:
+                    hiddenStateTLayerLplus1 = self.activation_function(itaLayerLPlus1, 'softmax')
+
+                self.ita[ele1,ele2,:,:] = itaLayerLPlus1
+                self.inputMatrixX[ele1+1,ele2,1::,:] = hiddenStateTLayerLplus1
+                """ check for this modulo and whether it needs to roll back"""
+                if (ele1 != self.numRNNLayers):
+                    self.hiddenStateMatrix[ele1,ele2+1,:,:] = hiddenStateTLayerLplus1
+                else:
+                    self.hiddenStateMatrix[ele1,ele2+1,:,:] = 0
+
+                self.outputMatrix[ele1,ele2,:,:] = hiddenStateTLayerLplus1
+
+        hiddenState = self.hiddenStateMatrix[:,-1,:,:]
+
+        return hiddenState
+
+
+
+    def backwardpass_rnn(self,trainDataLabel):
+        # trainDataLabel should be of shape numTimeSteps, outputShape, batch size
+        numTrainingSamples = trainDataLabel.shape[2]
+        #Errors/delta = dL/d ita
+        self.errorMatrix = np.zeros((self.numRNNLayers+1, self.numTimeSteps, self.inputShape, numTrainingSamples),dtype=np.float32)
+        for ele2 in range(self.numTimeSteps-1,-1,-1):
+            for ele1 in range(self.numRNNLayers,-1,-1):
+                if (ele1 == self.numRNNLayers):
+                    """ Final output layer for each time step"""
+                    self.errorMatrix[ele1,ele2,:,:] = self.outputMatrix[ele1,ele2,:,:] - trainDataLabel[ele2,:,:] # (y - d) For softmax activation function with categorical cross entropy cost function. Used for classification tasks.
+                else:
+                    itaLayerL = self.ita[ele1,ele2,:,:]
+                    activationFn = 'tanh'
+                    activationFnDerivative = self.derivative_activation_function(itaLayerL,activationFn)
+                    if (ele2 == self.numTimeSteps-1):
+                        self.errorMatrix[ele1,ele2,:,:] = (self.Wxh[:,1::,ele1+1].T @ self.errorMatrix[ele1+1,ele2,:,:]) * activationFnDerivative
+                    else:
+                        self.errorMatrix[ele1,ele2,:,:] = ((self.Wxh[:,1::,ele1+1].T @ self.errorMatrix[ele1+1,ele2,:,:]) +
+                                                      (self.Whh[:,:,ele1].T @ self.errorMatrix[ele1,ele2+1,:,:])) * activationFnDerivative
+
+
+
+    def update_weights_rnn(self):
+
+        # Add comments
+        batchSize = self.errorMatrix.shape[-1]
+
+        outputEachLayer = self.inputMatrixX[0:self.numRNNLayers+1,:,:,:] # Last layer is the final output which we are not interested in!
+        outputEachLayer = np.transpose(outputEachLayer,(0,1,3,2))
+        tempGradientsWxh = (self.errorMatrix @ outputEachLayer)/batchSize # Division is to take mean across gradients of a batch
+        # gradientCostFnwrtWxh = np.sum(tempGradientsWxh,axis=1) # same size as W_xh
+        gradientCostFnwrtWxh = np.mean(tempGradientsWxh,axis=1)
+        gradientCostFnwrtWxh = np.transpose(gradientCostFnwrtWxh,(1,2,0))
+        # Updates weights W_xh and biases
+        self.Wxh =  self.Wxh - self.stepsize*gradientCostFnwrtWxh # Gradient descent step
+
+        hiddenStateEachLayer = self.hiddenStateMatrix[:,0:self.numTimeSteps,:,:]
+        hiddenStateEachLayer = np.transpose(hiddenStateEachLayer,(0,1,3,2))
+        tempGradientsWhh = (self.errorMatrix @ hiddenStateEachLayer)/batchSize
+        # gradientCostFnwrtWhh = np.sum(tempGradientsWhh,axis=1)
+        gradientCostFnwrtWhh = np.mean(tempGradientsWhh,axis=1)
+        gradientCostFnwrtWhh = np.transpose(gradientCostFnwrtWhh,(1,2,0))
+        self.Whh = self.Whh - self.stepsize*gradientCostFnwrtWhh
+
+
+    def compute_forward_backward_pass_rnn(self, trainDataSample, trainDataLabel, hiddenState):
+
+        """ Forward pass"""
+        t1 = time.time()
+        hiddenState = self.forwardpass_rnn(trainDataSample, hiddenState)
+        # predictedOutput = self.outputMatrix[-1,:,:,:]
+        t2 = time.time()
+        # print('Time taken for forward pass = {0:.2f} s'.format(t2-t1))
+
+        # """ Cost function computation. May not be required! Required only when computing loss functon for each mini batch"""
+        # t3 = time.time()
+        # self.costFunctionValue = self.compute_loss_function(trainDataLabel, predictedOutput)
+        # t4 = time.time()
+        # print('Time taken for cost fn eval = {0:.2f} s'.format(t4-t3))
+
+        """ Backward pass"""
+        t5 = time.time()
+        self.backwardpass_rnn(trainDataLabel)
+        t6 = time.time()
+        # print('Time taken for backward pass = {0:.2f} s'.format(t6-t5))
+
+        """ Update weights"""
+        t7 = time.time()
+        self.update_weights_rnn()
+        t8 = time.time()
+        # print('Time taken for Weight update = {0:.2f} s'.format(t8-t7))
+
+        return hiddenState
+
+
+    def backpropagation_rnn(self):
+
+        flagStepSizeChange = 1
+        self.trainingLossArray = []
+        self.validationLossArray = []
+        for ele1 in np.arange(self.epochs):
+            timeEpochStart = time.time()
+
+            self.mini_batch_gradient_descent_rnn()
+
+            """ Training loss and accuracy post each epoch"""
+            t3 = time.time()
+            self.compute_train_loss_acc_rnn()
+            t4 = time.time()
+            # print('Time taken for computing training loss and accuracy after epoch = {0:.2f} min'.format(t4-t3)/60)
+
+            """ There is always validation data to test model"""
+            timeStartValidation = time.time()
+            self.compute_validation_loss_acc_rnn()
+            timeEndValidation = time.time()
+            timeValidation = (timeEndValidation - timeStartValidation)
+
+            print('\ntrain_loss: {0:.1f}, val_loss: {1:.1f}, train_accuracy: {2:.1f}, val_accuracy: {3:.1f}'.format(self.trainingLoss, self.validationLoss, self.trainAccuracy, self.validationAccuracy))
+            # Add a prediction after each epoch just to check the performance
+            if ((self.trainAccuracy > 80) and (self.validationAccuracy > 80) and (flagStepSizeChange == 1)): # Ideally it should be ((self.trainAccuracy > 90) and (self.validationAccuracy > 90)
+                self.stepsize = self.stepsize/10 # Make step size smaller when achieving higher accuracy > 90%
+                flagStepSizeChange = 0
+
+            if ((self.trainAccuracy > 95) and (self.validationAccuracy > 95)):
+                break
+
+
+            timeEpochEnd = time.time()
+            timeEachEpoch = (timeEpochEnd - timeEpochStart)/60
+            print('Time taken for epoch {0}/{1} = {2:.2f} min'.format(ele1+1, self.epochs, timeEachEpoch))
+
+            predSeqLen = 200
+            self.predict(predSeqLen) # Generate a character sequence of length = predSeqLen, at the end of each epoch
+
+
+    def compute_loss_function(self,trainDataLabel, predictedOutput):
+
+        # Cost function = 'categorical_cross_entropy'
+        mask = predictedOutput !=0 # Avoid 0 values in log2 evaluation. But this is not correct. It can mask wrong classifications.
+        N = predictedOutput.shape[0] * predictedOutput.shape[2] # numTimeSteps * numExamples
+        # cost fn = -Sum(di*log(yi))/N, where di is the actual output and yi is the predicted output, N is the batch size.
+        costFunction = (-np.sum((trainDataLabel[mask]*np.log2(predictedOutput[mask]))))/N # Mean loss across data points
+        """ Need to divide by N (batch size) to get the mean loss across data points"""
+
+        return costFunction
+
+
+
+    def train(self):
+
+        self.backpropagation_rnn()
+
+
+
+    def mini_batch_gradient_descent_rnn(self):
+
+        """ For stateful RNN, we may not need to shuffle the data while training, I think. Will verify this!"""
+        hiddenState = np.zeros((self.numRNNLayers+1, self.inputShape, self.batchsize),dtype=np.float32)
+        for batch_step in range(self.params["n_train_batches"]):
+            trainDataSample, trainDataLabel = get_batch(
+                self.params["train_data_segments"],
+                self.params["train_label_segments"],
+                batch_step,
+                self.params["seq_len"],
+                self.params["vocab_size"],
+            )
+
+            t1 = time.time()
+            trainDataSample = np.transpose(trainDataSample,(1,2,0))
+            trainDataLabel = np.transpose(trainDataLabel,(1,2,0))
+            hiddenState = self.compute_forward_backward_pass_rnn(trainDataSample,trainDataLabel, hiddenState)
+            t2 = time.time()
+
+
+
+
+
+    def compute_train_loss_acc_rnn(self):
+
+        """ Compute training loss and accuracy on the training data again with the weights obtained at the end of each epoch
+        Hidden state is set back to 0 when evaluating the training loss/accuracy after training for each epoch.
+        But I could as well use the hidden state from the last example of the last time step of previous epoch!
+
+        But within an epoch, the hidden state is carried forward across the batches and examples"""
+
+        actualOutputAllTrainData = np.zeros((self.numTimeSteps,self.inputShape,self.batchsize, self.params["n_train_batches"]))
+        predictedOutputAllTrainData = np.zeros((self.numTimeSteps,self.inputShape,self.batchsize, self.params["n_train_batches"]))
+        hiddenState = np.zeros((self.numRNNLayers+1, self.inputShape, self.batchsize),dtype=np.float32) # Currently hidden state being rolled back to 0!
+        for batch_step in range(self.params["n_train_batches"]):
+            trainDataSample, trainDataLabel = get_batch(
+                self.params["train_data_segments"],
+                self.params["train_label_segments"],
+                batch_step,
+                self.params["seq_len"],
+                self.params["vocab_size"],
+            )
+
+            trainDataSample = np.transpose(trainDataSample,(1,2,0))
+            trainDataLabel = np.transpose(trainDataLabel,(1,2,0))
+            hiddenState = self.forwardpass_rnn(trainDataSample,hiddenState)
+            predictedOutputAllTrainData[:,:,:,batch_step] = self.outputMatrix[-1,:,:,:]
+            actualOutputAllTrainData[:,:,:,batch_step] = trainDataLabel
+
+
+        predictedOutputAllTrainData = predictedOutputAllTrainData.reshape(self.numTimeSteps,self.inputShape,self.batchsize*self.params["n_train_batches"])
+        actualOutputAllTrainData = actualOutputAllTrainData.reshape(self.numTimeSteps,self.inputShape,self.batchsize*self.params["n_train_batches"])
+        self.trainingLoss = self.compute_loss_function(actualOutputAllTrainData, predictedOutputAllTrainData)
+        self.trainingLossArray.append(self.trainingLoss) # Keep appending the cost/loss function value for each epoch
+        self.get_accuracy(actualOutputAllTrainData, predictedOutputAllTrainData)
+        self.trainAccuracy = self.accuracy
+
+
+
+    def compute_validation_loss_acc_rnn(self):
+
+        """ Compute validation loss and accuracy on the validation data with the weights obtained at the end of each epoch
+        Here also, hidden state is set back to 0 when evaluating the validation loss/accuracy after training for each epoch.
+        But I could as well use the hidden state from the last example of the last time step of previous epoch!
+
+        But within an epoch, the hidden state is carried forward across the batches and examples
+        """
+
+
+        actualOutputAllValidationData = np.zeros((self.numTimeSteps,self.inputShape,self.batchsize, self.params["n_val_batches"]))
+        predictedOutputAllValidationData = np.zeros((self.numTimeSteps,self.inputShape,self.batchsize, self.params["n_val_batches"]))
+        hiddenState = np.zeros((self.numRNNLayers+1, self.inputShape, self.batchsize),dtype=np.float32) # Currently hidden state being rolled back to 0!
+        for batch_step in range(self.params["n_val_batches"]):
+            validationDataSample, validationDataLabel = get_batch(
+                self.params["val_data_segments"],
+                self.params["val_label_segments"],
+                batch_step,
+                self.params["seq_len"],
+                self.params["vocab_size"],
+            )
+
+            validationDataSample = np.transpose(validationDataSample,(1,2,0))
+            validationDataLabel = np.transpose(validationDataLabel,(1,2,0))
+            hiddenState = self.forwardpass_rnn(validationDataSample,hiddenState)
+            predictedOutputAllValidationData[:,:,:,batch_step] = self.outputMatrix[-1,:,:,:]
+            actualOutputAllValidationData[:,:,:,batch_step] = validationDataLabel
+
+
+        predictedOutputAllValidationData = predictedOutputAllValidationData.reshape(self.numTimeSteps,self.inputShape,self.batchsize*self.params["n_val_batches"])
+        actualOutputAllValidationData = actualOutputAllValidationData.reshape(self.numTimeSteps,self.inputShape,self.batchsize*self.params["n_val_batches"])
+        self.validationLoss = self.compute_loss_function(actualOutputAllValidationData, predictedOutputAllValidationData)
+        self.validationLossArray.append(self.validationLoss) # Keep appending the cost/loss function value for each epoch
+        self.get_accuracy(actualOutputAllValidationData, predictedOutputAllValidationData)
+        self.validationAccuracy = self.accuracy
+
+
+
+    def get_accuracy(self, trueLabels, predLabels, printAcc=False):
+        predClasses = np.argmax(predLabels,axis=1)
+        actualClasses = np.argmax(trueLabels,axis=1)
+        self.accuracy = np.mean(predClasses == actualClasses) * 100
+        if printAcc:
+            print('\nAccuracy of NN = {0:.2f} % \n'.format(self.accuracy))
+
+
+    def predict(self, predSeqLen):
+        # Need to pass in an initial character, need to define a stopping condition
+
+        textString = ''
+        hiddenStateTminus1LayerLplus1 = self.hiddenStateMatrix[:,-1,:,0] # Sample the hidden state at the last time step for any one of the examples/batch
+        pmf = self.inputMatrixX[-1,-1,1::,0] # 1st element is catering to bias and hence removing it. Sample the pmf at the last time step of the last layer for any one of the examples/batch
+        idx = np.argmax(pmf)
+        startingchar = self.params['idx2char'][idx]
+        textString += startingchar
+        inputVector = np.zeros((self.inputShape+1,)) # +1 for the bias
+        inputVector[0] = 1 # 1st element is for the bias term
+        inputVector[idx] = 1
+        # What is the character associated with this input vector though
+
+
+        for ele2 in range(predSeqLen):
+
+            for ele1 in range(self.numRNNLayers+1):
+
+                ita = (self.Whh[:,:,ele1] @ hiddenStateTminus1LayerLplus1[ele1,:]) + (self.Wxh[:,:,ele1] @ inputVector)
+
+                if (ele1 != self.numRNNLayers): # All RNN layers have tanh/sigmoid activatio fn. Last layer has softmax activation fn
+                    hiddenStateTLayerLplus1 = self.activation_function(ita, 'tanh')
+                    inputVector = np.concatenate(([1],hiddenStateTLayerLplus1)) # Prepended with 1 to take care of bias
+                    hiddenStateTminus1LayerLplus1[ele1,:] = hiddenStateTLayerLplus1 # Overwrite/Update the hidden state for next time step
+                else:
+                    # Need input for softmax to be a vector and not ndarray
+                    hiddenStateTLayerLplus1 = (self.activation_function(ita[:,None], 'softmax')).squeeze()
+                    inputVector = hiddenStateTLayerLplus1 # This is the final output and hence no bias term required. Also, its a pmf
+                    hiddenStateTminus1LayerLplus1[ele1,:] = 0 # For last layer with no hidden state, set to 0
+
+            """Input vector/output after looping through all the layers is a probability distribution over
+            the vocabulary
+            """
+            outputPMF = inputVector.flatten()
+
+            # Sample from this distribution
+            values = np.arange(self.outputShape)
+            chrIndex = np.random.choice(values, p=outputPMF)
+            char = self.params['idx2char'][chrIndex]
+            textString += char
+            inputVector = np.zeros((self.inputShape+1,))
+            inputVector[0] = 1 # 1st element is for the bias term
+            inputVector[chrIndex] = 1
+
+        print('Predicted text:\n',textString)
+
+
+
+
+if 0:
+
+    def train_rnn(self,trainData,trainDataLabels,split = 1):
+        # trainDataLabels should also be a 1 hot vector representation for classification task
+        """ split tells what fraction of the data should be used for traninging and the remianingpart will be used for validation
+        split (0,1]"""
+        """ Split data into training and validation data. Use validation data to test model on unseeen data while training"""
+        numDataPoints = trainData.shape[3]
+        numTrainingData = int(np.round(split*numDataPoints))
+        self.trainData = trainData[:,:,:,0:numTrainingData]
+        self.trainDataLabels = trainDataLabels[:,0:numTrainingData]
+        self.validationData = trainData[:,:,:,numTrainingData::]
+        self.validationDataLabels = trainDataLabels[:,numTrainingData::]
+
+        self.backpropagation_rnn()
+
+    def mini_batch_gradient_descent_rnn(self):
+        """ For stateful RNN, we may not need to shuffle the data while training, I think Will verify this!"""
+        numTrainData = self.trainData.shape[3]
+        arr = np.arange(numTrainData)
+        # """Randomly shuffle the order of feeding the training data for each epoch"""
+        # np.random.shuffle(arr)
+        # """ arr is the randomly shuffled order of sampling the training data"""
+        trainDataShuffle = self.trainData[:,:,:,arr]
+        trainDataLabelsShuffle = self.trainDataLabels[:,arr]
+        numTrainingData = self.trainData.shape[3]
+        numBatches = int(np.ceil(numTrainingData/self.batchsize))
+        startIndex = 0
+        hiddenState = np.zeros((self.numRNNLayers+1, self.inputShape, self.batchsize),dtype=np.float32)
+        for ele in range(numBatches):
+            if (startIndex+self.batchsize <= numTrainingData):
+                trainDataSample = trainDataShuffle[:,:,:,startIndex:startIndex+self.batchsize]
+                trainDataLabel = trainDataLabelsShuffle[:,startIndex:startIndex+self.batchsize]
+            else:
+                trainDataSample = trainDataShuffle[:,:,:,startIndex::]
+                trainDataLabel = trainDataLabelsShuffle[:,startIndex::]
+            t1 = time.time()
+            hiddenState = self.compute_forward_backward_pass_rnn(trainDataSample,trainDataLabel, hiddenState)
+            t2 = time.time()
+            # print('Time taken for batch {0}/{1} is {2:.2f} s'.format(ele+1,numBatches,(t2-t1)))
+
+            startIndex += self.batchsize
+
+
+
+    def compute_train_loss_acc_rnn(self):
+
+        """ Compute training loss and accuracy on the training data again with the weights obtained at the end of each epoch"""
+
+        numTrainingData = self.trainData.shape[3]
+        numBatches = int(np.ceil(numTrainingData/self.batchsize))
+        batchsize = self.batchsize
+        startIndex = 0
+        predictedOutputAllTrainData = np.zeros(self.trainDataLabels.shape,dtype=np.float32)
+        hiddenState = np.zeros((self.numRNNLayers+1, self.inputShape, self.batchsize),dtype=np.float32)
+        for ele in range(numBatches):
+            if (startIndex+batchsize <= numTrainingData):
+                trainDataSample = self.trainData[:,:,:,startIndex:startIndex+batchsize]
+            else:
+                trainDataSample = self.trainData[:,:,:,startIndex::]
+
+            hiddenState = self.forwardpass_rnn(trainDataSample,hiddenState)
+
+            if (startIndex+batchsize <= numTrainingData):
+                predictedOutputAllTrainData[:,:,startIndex:startIndex+batchsize] = self.outputMatrix[-1,:,:,:]
+            else:
+                predictedOutputAllTrainData[:,:,startIndex::] = self.outputMatrix[-1,:,:,:]
+
+            startIndex += batchsize
+
+
+        self.trainingLoss = self.compute_loss_function(self.trainDataLabels, predictedOutputAllTrainData)
+        self.trainingLossArray.append(self.trainingLoss) # Keep appending the cost/loss function value for each epoch
+        self.get_accuracy(self.trainDataLabels, predictedOutputAllTrainData)
+        self.trainAccuracy = self.accuracy
+
+
+
+    def compute_validation_loss_acc_rnn(self):
+
+        """ Compute training loss and accuracy on the training data again with the weights obtained at the end of each epoch"""
+
+        numvalidationData = self.validationData.shape[3]
+        numBatches = int(np.ceil(numvalidationData/self.batchsize))
+        batchsize = self.batchsize
+        startIndex = 0
+        predictedOutputAllValidationData = np.zeros(self.validationDataLabels.shape,dtype=np.float32)
+        hiddenState = np.zeros((self.numRNNLayers+1, self.inputShape, self.batchsize),dtype=np.float32)
+        for ele in range(numBatches):
+            if (startIndex+batchsize <= numvalidationData):
+                validationDataSample = self.validationData[:,:,:,startIndex:startIndex+batchsize]
+            else:
+                validationDataSample = self.validationData[:,:,:,startIndex::]
+
+            hiddenState = self.forwardpass_rnn(validationDataSample,hiddenState)
+
+            if (startIndex+batchsize <= numvalidationData):
+                predictedOutputAllValidationData[:,:,startIndex:startIndex+batchsize] = self.outputMatrix[-1,:,:,:]
+            else:
+                predictedOutputAllValidationData[:,:,startIndex::] = self.outputMatrix[-1,:,:,:]
+
+            startIndex += batchsize
+
+
+        self.validationLoss = self.compute_loss_function(self.validationDataLabels, predictedOutputAllValidationData)
+        self.validationLossArray.append(self.validationLoss) # Keep appending the cost/loss function value for each epoch
+        self.get_accuracy(self.validationDataLabels, predictedOutputAllValidationData)
+        self.validationAccuracy = self.accuracy
