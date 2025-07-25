@@ -162,6 +162,9 @@ dropped to 83%. Is it the running mean and variance which is causing this issue?
 
 Also, CNN has some bugs in updating the kernels weights[I believe I have now fixed the bug]
 
+22/07/2025
+1. Keep Batch normalization into a separate function instead of corrupting the forward pass
+
 
 
 
@@ -682,8 +685,8 @@ Action Items
 7. Make step size smaller and smaller as the training and validation accuracy goes beyond 90% and you wish to achieve a better accuracy
 8. Save model and run without training
 9. Support average pooling as well
-10. Understand dropout layer
-11. Understand batch normalization
+10. Understand dropout layer[Understood, but need to implement]
+11. Understand batch normalization[Done. Implemented as well]
 12. Print the number of parameters in the model[Done]
 13. Depthwise convolution + point wise convolution has lesser number of parameter and reduces
 number of operations as compared to standard convolution. But how do we learn the parameters/backprop
@@ -712,7 +715,7 @@ vanishing gradients. [Done] Fixed by He weight initialization!
 24. Implement RMSProp, ADAM, Adagrad methods of Gradient descent optimization algorithms
 25. Xavier and He initialization methods. Video link: https://www.youtube.com/watch?v=1pgahpCZeF0&list=PLyqSpQzTE6M9gCgajvQbc68Hk_JKGBAYT&index=73
 26. Dropouts for regularization
-27. Batch normalization
+27. Batch normalization [Done]
 28. Plot distribution of weights at each layer
 29. If we are going with a simple optimizer like gradient descent,
 we should follow the standard initialization practises like He, Xavier which ensure all neuroans are alive
@@ -727,18 +730,30 @@ So, if we are enabling batch normalization, we can get rid of the bias terms! As
 The bias term we add in the batch normalization process, itself takes care of the bias
 31. If a layer has batch normalization, then replace f'(ita) with f'(ita_^^)*(alpha/sigma)
 where ita_^^ = alpha (ita_^) + beta, ita_^ = (ita-mu)/sigma, where mu and sigma are the mean and variance across the data points for that particular node/neuron.
-I have derived this, but need to verify!
+I have derived this, but need to verify! [Done]
 31. Understand the embedding matrix for LLMs. Why is it used?
 32. Plot running mean and variance across batches
 33. Numrical gradient check?
 34. Regularization and dropouts, adam optimizer
 35. check if gradient wrt bias term is 0 with BN enabled
 36. What shoud be the scaling factor for the l2 regularization
-37. Is BN implemented correctly in CNN?
+37. Is BN implemented correctly in CNN? [Yes! Im now getting better results with BN on fashion MNIST dataset with a simpler CNN architecture]
 
 
 Batch normalization is used only for hidden layers. It should not be used for the final output
 layer before softmax activation!
+
+
+With the below CNN architecture on the fashion MINIST dataset,
+ Reference architecture from:
+    https://medium.com/@sanjay_dutta/building-a-baseline-convolutional-neural-network-for-fashion-mnist-600634e5feef
+
+The following are the observations:
+1. Without BN for both CNN and DNN, train accuracy = 89%, validation accuracy = 89%, test accuracy = 89%
+2. With BN for both CNN and DNN, train accuracy = 86%, validation accuracy = 86%, test accuracy = 86%. But I was expecting much better results with BN enabled! Not sure why this is happening. Need to debug the reason for this. May need to add regularization and/or drop outs.
+3. With BN for DNN and without BN for CNN, train accuracy = 85%, validation accuracy = 85%, test accuracy = 85%. This means that BN in DNN itself is limiting the perforamance.
+4. With BN for CNN and without BN for DNN, train accuracy = 94%, validation accuracy = 91%, test accuracy = 91%. This implies that BN for DNN is limiting the performance and that the CNN code and BN for CNN has been implemented correctly!
+
 
 """
 
