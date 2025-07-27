@@ -5,7 +5,19 @@ Created on Mon Jul 21 19:09:26 2025
 @author: Sai Gunaranjan
 """
 
+
 """
+Recurrent Neural network (RNN)
+
+Implemented a stateful RNN, where the final hidden state after N timesteps feeds in as input hidden state for the
+next batch of data
+
+Trained on Harry Potter one chapter of text with:
+    1. batch size of 32, was able to hit train_loss: 2.2, val_loss: 3.2, train_accuracy: 56.1, val_accuracy: 42.5 after 1000 epochs
+    2. batch size of 1, was able to hit train_loss: 3.0, val_loss: 3.2, train_accuracy: 38.2, val_accuracy: 36.8
+
+
+
 25/07/2025
 Run RNN successfully generating character level text
 
@@ -33,15 +45,6 @@ from textfile_preprocessing import prepare_data, get_batch
 # np.seterr(over='raise')
 
 
-""" Recurrent Neural network (RNN)
-
-Implemented a stateful RNN, where the final hidden state after N timesteps feeds in as input hidden state for the
-next batch of data
-
-Trained on Harry Potter one chapter of text with:
-    1. batch size of 32, was able to hit train_loss: 2.2, val_loss: 3.2, train_accuracy: 56.1, val_accuracy: 42.5 after 1000 epochs
-    2. batch size of 1, was able to hit train_loss: 3.0, val_loss: 3.2, train_accuracy: 38.2, val_accuracy: 36.8
-"""
 
 class RecurrentNeuralNetwork():
 
@@ -435,17 +438,11 @@ class RecurrentNeuralNetwork():
 
 
     def predict(self, predSeqLen):
-        # Need to pass in an initial character, need to define a stopping condition
+
 
         textString = ''
-
-        # hiddenStateTminus1LayerLplus1 = self.hiddenStateMatrix[:,-1,:,0] # Sample the hidden state at the last time step for any one of the examples/batch from the validation output since this is what happened last
-        # pmf = self.inputMatrixX[-1,-1,1::,0] # 1st element is catering to bias and hence removing it. Sample the pmf at the last time step of the last layer for any one of the examples/batch from the validation output since this is what happened last
-        # idx = np.argmax(pmf)
-
         hiddenStateTminus1LayerLplus1 = self.hiddenStateForPredict
         idx = self.startIdx
-
         startingchar = self.params['idx2char'][idx]
         textString += startingchar
         inputVector = np.zeros((self.inputShape+1,)) # +1 for the bias
@@ -488,48 +485,6 @@ class RecurrentNeuralNetwork():
 
 
 
-    # def predict_debug(self, predSeqLen):
-    #     # Need to pass in an initial character, need to define a stopping condition
-
-    #     textString = ''
-
-
-    #     hiddenStateTminus1LayerLplus1 = np.load('h.npy')
-    #     inputVector = np.load('x.npy')
-    #     Whh = np.load('Whh.npy')
-    #     Wxh = np.load('Wxh.npy')
-
-    #     for ele2 in range(predSeqLen):
-
-    #         for ele1 in range(self.numRNNLayers+1):
-
-    #             ita = (Whh[:,:,ele1] @ hiddenStateTminus1LayerLplus1[ele1,:]) + (Wxh[:,:,ele1] @ inputVector)
-
-    #             if (ele1 != self.numRNNLayers): # All RNN layers have tanh/sigmoid activatio fn. Last layer has softmax activation fn
-    #                 hiddenStateTLayerLplus1 = self.activation_function(ita, 'tanh')
-    #                 inputVector = np.concatenate(([1],hiddenStateTLayerLplus1)) # Prepended with 1 to take care of bias
-    #                 hiddenStateTminus1LayerLplus1[ele1,:] = hiddenStateTLayerLplus1 # Overwrite/Update the hidden state for next time step
-    #             else:
-    #                 # Need input for softmax to be a vector and not ndarray
-    #                 hiddenStateTLayerLplus1 = (self.activation_function(ita[:,None], 'softmax')).squeeze()
-    #                 inputVector = hiddenStateTLayerLplus1 # This is the final output and hence no bias term required. Also, its a pmf
-    #                 hiddenStateTminus1LayerLplus1[ele1,:] = 0 # For last layer with no hidden state, set to 0
-
-    #         """Input vector/output after looping through all the layers is a probability distribution over
-    #         the vocabulary
-    #         """
-    #         outputPMF = inputVector.flatten()
-
-    #         # Sample from this distribution
-    #         values = np.arange(self.outputShape)
-    #         chrIndex = np.random.choice(values, p=outputPMF);chrIndex = 62
-    #         char = self.params['idx2char'][chrIndex]
-    #         textString += char
-    #         inputVector = np.zeros((self.inputShape+1,))
-    #         inputVector[0] = 1 # 1st element is for the bias term
-    #         inputVector[chrIndex+1] = 1
-
-    #     print('Predicted text:\n',textString)
 
 
 if 0:
