@@ -5,6 +5,26 @@ Created on Mon Jul 21 19:09:26 2025
 @author: Sai Gunaranjan
 """
 
+"""
+25/07/2025
+Run RNN successfully generating character level text
+
+In this commit, I have fixed the error/bug that was generating random meaningless text during the prediction part of the RNN! The bug was that, during the prediction part, the input 1-hot vector was not being generated correctly. I was placing a 1 at the index of the chr2idx, however, I should place it at index chr2idx+1. This is because I'm additionally  prepending a 1 at the beginning of the input 1 hot vector (hence increasing its dimension by 1) to cater to the bias in the Wxh matrix.
+I found this bug while bit matching my prediction logic with Andrej's vanilla RNN code. It was actually very useful to have a baseline script to check and verify my implementation.
+Post fixing this bug, I'm now able to generate meaningful text and words similar to the prediction from Andrej's script. However, with larger learning rates like 1e-2, the code is  crashing (possibly due to exploding gradients) while evaluating the exp(x) part of the tanh function. I will examine this more closely. Following are the changes which have been made in this commit.
+1. Replaced the Xavier initialization of the weights for tanh activation with weights drawn from gaussian distribution of 0 mean and sigma = 0.01. I did this as Andrej was also doing the same weight initialization. But I need to check if Xavier initialization also works and there are no exploding gradients.
+
+2. Added debug prints (commented out) in the backward pass to check for distribution of gradients.
+
+3. Previously, I was computing the gradients of the loss wrt Wxh and Whh as a mean across time axis which is ideally not correct. Of course it is just a scaling that can be accounted back into the learning rate. I am now computing the gradients of the loss wrt Wxh and Whh as a sum across time which means each time step of the seq_len time steps contributes to the overall loss and hence we take the gradients as a sum across all the examples in a time step.
+
+4. Added a comment to clip the gradients to force them to not exceed +/-5. If the gradients are large, then the updated weights will aslo get large and this will result in the output ita to be large and when evaulating the exp(ita) part of the tanh, it will crash for large numbers! I need to study this more closely. I have adopted this line form Andrej's script where in he is also limiting the gradients.
+
+5. Changed the way in which I predict a text after each epoch. Previously I was always force feeding hidden satte as 0 and input vector corrsponding to H (which is the first character of the training text). Now, I randomly select the starting character of each batch of examples for each epoch as the input vector. Hidden state is anyways available from previous batch in the same epoch.
+
+6. Also, made the batch size to 1 while training. This is how Andrejs does in his script. I need to see how to maintain continuity in input and hidden sate when dealing with batches of data. I will do this in the subsequent commits.
+
+"""
 
 import numpy as np
 import time as time
