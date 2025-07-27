@@ -10,6 +10,7 @@ import numpy as np
 import time as time
 np.random.seed(0)
 from textfile_preprocessing import prepare_data, get_batch
+# np.seterr(over='raise')
 
 
 """ Recurrent Neural network (RNN)
@@ -37,7 +38,7 @@ class RecurrentNeuralNetwork():
         """ Xavier method of weight initialization for tanh activation for vanilla RNN"""
         fan_in = self.inputShape
         fan_out = self.inputShape # because I'm assuming all the weight matrices are square matrices of same shape for all layers
-        scalingFactorXavierInit = np.sqrt(2/(fan_in+fan_out)) * 5/3 # Xavier initialization for tanh activation
+        scalingFactorXavierInit = 0.01#np.sqrt(2/(fan_in+fan_out)) * 5/3 # Xavier initialization for tanh activation
         # Assuming all input vectors and hidden state vectors are same shape and for every layer as well!
         self.Wxh = np.random.randn(self.inputShape, self.inputShape+1, self.numRNNLayers+1) * scalingFactorXavierInit # self.inputShape+1 absorbs the bias term to the Wxh matrix, self.numRNNLayers+1 is for the final output layer
         self.Whh = np.random.randn(self.inputShape, self.inputShape, self.numRNNLayers+1) * scalingFactorXavierInit# +1 is for the final output layer
@@ -66,6 +67,12 @@ class RecurrentNeuralNetwork():
 
     def tanh(self,z):
         # tanh = (np.exp(z) - np.exp(-z)) / (np.exp(z) + np.exp(-z))
+
+        # try:
+        #     ePowpz = np.exp(z)
+        # except FloatingPointError:
+        #     print("Overflow detected!")
+
         ePowpz = np.exp(z)
         ePowmz = np.exp(-z)
         return (ePowpz - ePowmz) / (ePowpz + ePowmz)
@@ -135,7 +142,7 @@ class RecurrentNeuralNetwork():
 
                 self.ita[ele1,ele2,:,:] = itaLayerLPlus1
                 self.inputMatrixX[ele1+1,ele2,1::,:] = hiddenStateTLayerLplus1
-                """ check for this modulo and whether it needs to roll back"""
+
                 if (ele1 != self.numRNNLayers):
                     self.hiddenStateMatrix[ele1,ele2+1,:,:] = hiddenStateTLayerLplus1
                 else:
@@ -169,7 +176,15 @@ class RecurrentNeuralNetwork():
                         self.errorMatrix[ele1,ele2,:,:] = ((self.Wxh[:,1::,ele1+1].T @ self.errorMatrix[ele1+1,ele2,:,:]) +
                                                       (self.Whh[:,:,ele1].T @ self.errorMatrix[ele1,ele2+1,:,:])) * activationFnDerivative
 
+        # np.clip(self.errorMatrix, -5, 5, out=self.errorMatrix) # Clip to prevent exploding gradients
 
+        # plt.hist(self.errorMatrix[0,:,:,0].flatten(),bins=50)
+        # print('\n\n')
+        # print('Min value of gradient: {0:.1f}'.format(np.amin(self.errorMatrix[0,:,:,0].flatten())))
+        # print('Max value of gradient: {0:.1f}'.format(np.amax(self.errorMatrix[0,:,:,0].flatten())))
+        # percentile = 95
+        # print('{0} percentile value of gradient: {1:.1f}'.format(percentile, np.percentile(np.abs(self.errorMatrix[0,:,:,0].flatten()),percentile)))
+        # print('--')
 
     def update_weights_rnn(self):
 
@@ -179,18 +194,24 @@ class RecurrentNeuralNetwork():
         outputEachLayer = self.inputMatrixX[0:self.numRNNLayers+1,:,:,:] # Last layer is the final output which we are not interested in!
         outputEachLayer = np.transpose(outputEachLayer,(0,1,3,2))
         tempGradientsWxh = (self.errorMatrix @ outputEachLayer)/batchSize # Division is to take mean across gradients of a batch
-        # gradientCostFnwrtWxh = np.sum(tempGradientsWxh,axis=1) # same size as W_xh
-        gradientCostFnwrtWxh = np.mean(tempGradientsWxh,axis=1)
+        gradientCostFnwrtWxh = np.sum(tempGradientsWxh,axis=1) # same size as W_xh
+        # gradientCostFnwrtWxh = np.mean(tempGradientsWxh,axis=1)
         gradientCostFnwrtWxh = np.transpose(gradientCostFnwrtWxh,(1,2,0))
+
+        np.clip(gradientCostFnwrtWxh, -5, 5, out=gradientCostFnwrtWxh)
+
         # Updates weights W_xh and biases
         self.Wxh =  self.Wxh - self.stepsize*gradientCostFnwrtWxh # Gradient descent step
 
         hiddenStateEachLayer = self.hiddenStateMatrix[:,0:self.numTimeSteps,:,:]
         hiddenStateEachLayer = np.transpose(hiddenStateEachLayer,(0,1,3,2))
         tempGradientsWhh = (self.errorMatrix @ hiddenStateEachLayer)/batchSize
-        # gradientCostFnwrtWhh = np.sum(tempGradientsWhh,axis=1)
-        gradientCostFnwrtWhh = np.mean(tempGradientsWhh,axis=1)
+        gradientCostFnwrtWhh = np.sum(tempGradientsWhh,axis=1)
+        # gradientCostFnwrtWhh = np.mean(tempGradientsWhh,axis=1)
         gradientCostFnwrtWhh = np.transpose(gradientCostFnwrtWhh,(1,2,0))
+
+        np.clip(gradientCostFnwrtWhh, -5, 5, out=gradientCostFnwrtWhh)
+
         self.Whh = self.Whh - self.stepsize*gradientCostFnwrtWhh
 
 
@@ -263,6 +284,8 @@ class RecurrentNeuralNetwork():
             predSeqLen = 200
             self.predict(predSeqLen) # Generate a character sequence of length = predSeqLen, at the end of each epoch
 
+            # self.predict_debug(predSeqLen)
+
 
     def compute_loss_function(self,trainDataLabel, predictedOutput):
 
@@ -285,6 +308,7 @@ class RecurrentNeuralNetwork():
 
     def mini_batch_gradient_descent_rnn(self):
 
+        randBatchInd = np.random.randint(0,self.params["n_train_batches"])
         """ For stateful RNN, we may not need to shuffle the data while training, I think. Will verify this!"""
         hiddenState = np.zeros((self.numRNNLayers+1, self.inputShape, self.batchsize),dtype=np.float32)
         for batch_step in range(self.params["n_train_batches"]):
@@ -295,7 +319,9 @@ class RecurrentNeuralNetwork():
                 self.params["seq_len"],
                 self.params["vocab_size"],
             )
-
+            if (batch_step == randBatchInd):
+                self.hiddenStateForPredict = hiddenState[:,:,0] # Sample the previous hidden state for 1 example since prediction works with 1 sample at a time
+                self.startIdx = np.argmax(trainDataSample[0,0,:]) # Store the starting character idx for the next sequence starting
             t1 = time.time()
             trainDataSample = np.transpose(trainDataSample,(1,2,0))
             trainDataLabel = np.transpose(trainDataLabel,(1,2,0))
@@ -392,15 +418,20 @@ class RecurrentNeuralNetwork():
         # Need to pass in an initial character, need to define a stopping condition
 
         textString = ''
-        hiddenStateTminus1LayerLplus1 = self.hiddenStateMatrix[:,-1,:,0] # Sample the hidden state at the last time step for any one of the examples/batch
-        pmf = self.inputMatrixX[-1,-1,1::,0] # 1st element is catering to bias and hence removing it. Sample the pmf at the last time step of the last layer for any one of the examples/batch
-        idx = np.argmax(pmf)
+
+        # hiddenStateTminus1LayerLplus1 = self.hiddenStateMatrix[:,-1,:,0] # Sample the hidden state at the last time step for any one of the examples/batch from the validation output since this is what happened last
+        # pmf = self.inputMatrixX[-1,-1,1::,0] # 1st element is catering to bias and hence removing it. Sample the pmf at the last time step of the last layer for any one of the examples/batch from the validation output since this is what happened last
+        # idx = np.argmax(pmf)
+
+        hiddenStateTminus1LayerLplus1 = self.hiddenStateForPredict
+        idx = self.startIdx
+
         startingchar = self.params['idx2char'][idx]
         textString += startingchar
         inputVector = np.zeros((self.inputShape+1,)) # +1 for the bias
         inputVector[0] = 1 # 1st element is for the bias term
-        inputVector[idx] = 1
-        # What is the character associated with this input vector though
+        inputVector[idx+1] = 1 # To account for the element 1 added at the beginning
+
 
 
         for ele2 in range(predSeqLen):
@@ -431,11 +462,54 @@ class RecurrentNeuralNetwork():
             textString += char
             inputVector = np.zeros((self.inputShape+1,))
             inputVector[0] = 1 # 1st element is for the bias term
-            inputVector[chrIndex] = 1
+            inputVector[chrIndex+1] = 1 # To account for the element 1 added at the beginning
 
         print('Predicted text:\n',textString)
 
 
+
+    # def predict_debug(self, predSeqLen):
+    #     # Need to pass in an initial character, need to define a stopping condition
+
+    #     textString = ''
+
+
+    #     hiddenStateTminus1LayerLplus1 = np.load('h.npy')
+    #     inputVector = np.load('x.npy')
+    #     Whh = np.load('Whh.npy')
+    #     Wxh = np.load('Wxh.npy')
+
+    #     for ele2 in range(predSeqLen):
+
+    #         for ele1 in range(self.numRNNLayers+1):
+
+    #             ita = (Whh[:,:,ele1] @ hiddenStateTminus1LayerLplus1[ele1,:]) + (Wxh[:,:,ele1] @ inputVector)
+
+    #             if (ele1 != self.numRNNLayers): # All RNN layers have tanh/sigmoid activatio fn. Last layer has softmax activation fn
+    #                 hiddenStateTLayerLplus1 = self.activation_function(ita, 'tanh')
+    #                 inputVector = np.concatenate(([1],hiddenStateTLayerLplus1)) # Prepended with 1 to take care of bias
+    #                 hiddenStateTminus1LayerLplus1[ele1,:] = hiddenStateTLayerLplus1 # Overwrite/Update the hidden state for next time step
+    #             else:
+    #                 # Need input for softmax to be a vector and not ndarray
+    #                 hiddenStateTLayerLplus1 = (self.activation_function(ita[:,None], 'softmax')).squeeze()
+    #                 inputVector = hiddenStateTLayerLplus1 # This is the final output and hence no bias term required. Also, its a pmf
+    #                 hiddenStateTminus1LayerLplus1[ele1,:] = 0 # For last layer with no hidden state, set to 0
+
+    #         """Input vector/output after looping through all the layers is a probability distribution over
+    #         the vocabulary
+    #         """
+    #         outputPMF = inputVector.flatten()
+
+    #         # Sample from this distribution
+    #         values = np.arange(self.outputShape)
+    #         chrIndex = np.random.choice(values, p=outputPMF);chrIndex = 62
+    #         char = self.params['idx2char'][chrIndex]
+    #         textString += char
+    #         inputVector = np.zeros((self.inputShape+1,))
+    #         inputVector[0] = 1 # 1st element is for the bias term
+    #         inputVector[chrIndex+1] = 1
+
+    #     print('Predicted text:\n',textString)
 
 
 if 0:
