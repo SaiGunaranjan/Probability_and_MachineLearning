@@ -196,34 +196,42 @@ class RecurrentNeuralNetwork():
 
 
 
-    def forwardpass_rnn(self, trainDataSample, hiddenState):
-
-        numTrainingSamples = trainDataSample.shape[2] # batch size, 1st dimension is sequence length, 2nd dimension is length of vector, 3rd dimension is batch size
-
+    def define_hiddenstatematrix(self,hiddenState):
         self.hiddenStateMatrix = []
         for ele1 in range(self.numRNNLayers+1):
-        	temp = np.zeros((self.numTimeSteps+1, self.hiddenShape[ele1], numTrainingSamples),dtype=np.float32)
+        	temp = np.zeros((self.numTimeSteps+1, self.hiddenShape[ele1], self.batchsize),dtype=np.float32)
         	temp[0,:,:] = hiddenState[ele1] # Write the hidden state at the final time step back to the inital time step for next batch
         	self.hiddenStateMatrix.append(temp)
 
 
+    def define_inputmatrix(self,trainDataSample):
         self.inputMatrixX = []
         for layer in range(self.numRNNLayers + 2):
-        	cell = np.ones((self.numTimeSteps, self.inputShapeEachLayer[layer]+1, numTrainingSamples), dtype=np.float32) ## self.inputShape+1 is for the bias
+        	cell = np.ones((self.numTimeSteps, self.inputShapeEachLayer[layer]+1, self.batchsize), dtype=np.float32) ## self.inputShape+1 is for the bias
         	if layer == 0:
         		cell[:,1::, :] = trainDataSample # 1st term is for the bias term
         	self.inputMatrixX.append(cell)
 
 
+    def define_outputmatrix(self):
         self.outputMatrix = []
         for layer in range(self.numRNNLayers+1):
-        	cell = np.zeros((self.numTimeSteps, self.inputShapeEachLayer[layer+1], numTrainingSamples), dtype=np.float32)
+        	cell = np.zeros((self.numTimeSteps, self.inputShapeEachLayer[layer+1], self.batchsize), dtype=np.float32)
         	self.outputMatrix.append(cell)
 
 
 
-        self.ita = [row.copy() for row in self.outputMatrix]
+    def forwardpass_rnn(self, trainDataSample, hiddenState):
 
+        # numTrainingSamples = trainDataSample.shape[2] # batch size, 1st dimension is sequence length, 2nd dimension is length of vector, 3rd dimension is batch size
+
+        self.define_hiddenstatematrix(hiddenState)
+
+        self.define_inputmatrix(trainDataSample)
+
+        self.define_outputmatrix()
+
+        self.ita = [row.copy() for row in self.outputMatrix] # ita is same size as output matrix
 
         for ele2 in range(self.numTimeSteps):
             for ele1 in range(self.numRNNLayers+1): # +1 is for the final output hidden layer with softmax
@@ -246,7 +254,7 @@ class RecurrentNeuralNetwork():
                 self.outputMatrix[ele1][ele2,:,:] = hiddenStateTLayerLplus1
 
 
-        hiddenState = [row[-1,:,:] for row in self.hiddenStateMatrix]
+        hiddenState = [row[-1,:,:] for row in self.hiddenStateMatrix] # hidden state of each layer and last time step is stored and used as input hidden state of next charcter
 
         return hiddenState
 
