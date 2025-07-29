@@ -36,11 +36,46 @@ Post fixing this bug, I'm now able to generate meaningful text and words similar
 
 6. Also, made the batch size to 1 while training. This is how Andrejs does in his script. I need to see how to maintain continuity in input and hidden sate when dealing with batches of data. I will do this in the subsequent commits.
 
+
+
+28/07/2025
+Generalized RNN to different length hidden state vector for each layer
+
+
+In this commit, I have generalized the RNN architecture to cater to different sizes of the hidden state vector
+for each RNN layer. Previously, due to matrix only operations, the size of the hidden state vector for each RNN layer
+was forced to be same as the input size(also vocab size). But this reduces the flexibility on the hidden states.
+By allowing for the hidden state vector to take on any size for each RNN layer, irrespective of the vocab size,
+the RNN network can learn different kinds of long term dependencies like " " (quote unquote), etc. Since the hidden state
+vector for each layer is different size, we can no longer work with matrices across layers and hence I have
+introduced lists across layers. But within a layer, across time steps, we still deal with matrices. However,
+the execution time now increases from 1.2 seconds per epoch to 12 seconds per epoch since there are list operations.
+The code is running fine. I still need to incorporate the checks for gradient exploding. Moreover, I want to spend some time
+understanding and appreciating the problem of exploding gradients in RNNs and not necessarily only from a code crashing stand point.
+There's another issue. When I increase the batch size from 1 to say 32, the code still runs fine, but the RNN
+doesnt seem to generate meaningful words. This could possibly be because of the following reason.
+Since the training data is divided into 32 batches (if batch size is selected to 32), each batch might be starting randomly
+and not necessarily from the beginning of a sentence. Hence, the network might not be learning meaningful
+long term dependencies. This is my hunch. I need to verify this though! I also need to understand the validation loss and accuracy
+for text data.
+
+
+Tasks:
+    1. Understand impact of exploding gradients.
+    2. Understand how to define validation loss and accuracy in the contect of text generation
+    3. Understand RNN behaviour when dealing with batches of training text.
+    4. Implement gradient clipping
+
+
+
+
+
+
 """
 
 import numpy as np
 import time as time
-np.random.seed(0)
+np.random.seed(1)
 from textfile_preprocessing import prepare_data, get_batch
 # np.seterr(over='raise')
 
@@ -56,18 +91,35 @@ class RecurrentNeuralNetwork():
         self.outputShape = outputShape
         self.numTimeSteps = numTimeSteps
         self.numTotalLayers = 1 + self.numRNNLayers + 1 # (1 for input, 1 for output, numRNNLayers)
+
         """ Weight initialization"""
-
         """ Xavier method of weight initialization for tanh activation for vanilla RNN"""
-        fan_in = self.inputShape
-        fan_out = self.inputShape # because I'm assuming all the weight matrices are square matrices of same shape for all layers
-        scalingFactorXavierInit = 0.01#np.sqrt(2/(fan_in+fan_out)) * 5/3 # Xavier initialization for tanh activation
-        # Assuming all input vectors and hidden state vectors are same shape and for every layer as well!
-        self.Wxh = np.random.randn(self.inputShape, self.inputShape+1, self.numRNNLayers+1) * scalingFactorXavierInit # self.inputShape+1 absorbs the bias term to the Wxh matrix, self.numRNNLayers+1 is for the final output layer
-        self.Whh = np.random.randn(self.inputShape, self.inputShape, self.numRNNLayers+1) * scalingFactorXavierInit# +1 is for the final output layer
-        self.Whh[:,:,-1] = 0 # Final output layer doesnt have a hidden state input and hence Whh for final layer is 0
-        # self.biasVec = np.random.randn(self.inputShape, 1, self.numRNNLayers+1) * scalingFactorXavierInit
+        self.hiddenShape = np.random.randint(self.inputShape, self.inputShape+50, size=self.numRNNLayers+1) # Length of hidden state vector can be different for each layer
+        self.hiddenShape[-1] = self.outputShape # Final output layer hidden state vector is a 0 vector of shape vocab size
+        self.inputShapeEachLayer = np.zeros((self.numRNNLayers+2,),dtype=np.int32) # Size of input to each layer (rnn layer and final output layer)
+        self.inputShapeEachLayer[0] = self.inputShape
 
+        fanInWxh = self.inputShape+1 # inputShape+1 absorbs the bias term to the Wxh matrix
+        self.Wxh = []
+        self.Whh = []
+        for ele in range(self.numRNNLayers+1):
+            fanInWhh = fanOutWhh = self.hiddenShape[ele]
+            fanOutWxh = fanOutWhh
+            scalingFactorXavierInitWhh = np.sqrt(2/(fanInWhh+fanOutWhh)) * 5/3
+            scalingFactorXavierInitWxh = np.sqrt(2/(fanInWxh+fanOutWxh)) * 5/3
+
+            if (ele == self.numRNNLayers):
+                Whh = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32) # Final output layer doesnt have a hidden state input and hence Whh for final layer is 0
+            else:
+                Whh = np.random.randn(fanOutWhh, fanInWhh) * scalingFactorXavierInitWhh
+            Wxh = np.random.randn(fanOutWxh, fanInWxh) * scalingFactorXavierInitWxh # self.inputShape+1 absorbs the bias term to the Wxh matrix, self.numRNNLayers+1 is for the final output layer
+            fanInWxh = fanOutWhh + 1 # fanOutWhh+1 absorbs the bias term to the Wxh matrix
+            self.inputShapeEachLayer[ele+1] = fanOutWhh
+
+            self.Wxh.append(Wxh)
+            self.Whh.append(Whh)
+
+        # Wxh and Whh matrices size vary with each layer
 
 
 
@@ -143,62 +195,83 @@ class RecurrentNeuralNetwork():
         return activationFnDerivative
 
 
+
     def forwardpass_rnn(self, trainDataSample, hiddenState):
 
         numTrainingSamples = trainDataSample.shape[2] # batch size, 1st dimension is sequence length, 2nd dimension is length of vector, 3rd dimension is batch size
-        self.hiddenStateMatrix = np.zeros((self.numRNNLayers+1, self.numTimeSteps+1, self.inputShape, numTrainingSamples),dtype=np.float32)
-        self.hiddenStateMatrix[:,0,:,:] = hiddenState # Write the hidden state at the final time step back to the inital time step for next batch
-        self.inputMatrixX = np.ones((self.numRNNLayers+2, self.numTimeSteps, self.inputShape+1, numTrainingSamples),dtype=np.float32) # self.inputShape+1 is for the bias
-        self.inputMatrixX[0,:,1::,:] = trainDataSample # 1st term is for the bias term
-        self.outputMatrix = np.zeros((self.numRNNLayers+1, self.numTimeSteps, self.inputShape, numTrainingSamples),dtype=np.float32)
-        self.ita = np.zeros((self.numRNNLayers+1, self.numTimeSteps, self.inputShape, numTrainingSamples),dtype=np.float32)
+
+        self.hiddenStateMatrix = []
+        for ele1 in range(self.numRNNLayers+1):
+        	temp = np.zeros((self.numTimeSteps+1, self.hiddenShape[ele1], numTrainingSamples),dtype=np.float32)
+        	temp[0,:,:] = hiddenState[ele1] # Write the hidden state at the final time step back to the inital time step for next batch
+        	self.hiddenStateMatrix.append(temp)
+
+
+        self.inputMatrixX = []
+        for layer in range(self.numRNNLayers + 2):
+        	cell = np.ones((self.numTimeSteps, self.inputShapeEachLayer[layer]+1, numTrainingSamples), dtype=np.float32) ## self.inputShape+1 is for the bias
+        	if layer == 0:
+        		cell[:,1::, :] = trainDataSample # 1st term is for the bias term
+        	self.inputMatrixX.append(cell)
+
+
+        self.outputMatrix = []
+        for layer in range(self.numRNNLayers+1):
+        	cell = np.zeros((self.numTimeSteps, self.inputShapeEachLayer[layer+1], numTrainingSamples), dtype=np.float32)
+        	self.outputMatrix.append(cell)
+
+
+
+        self.ita = [row.copy() for row in self.outputMatrix]
+
 
         for ele2 in range(self.numTimeSteps):
             for ele1 in range(self.numRNNLayers+1): # +1 is for the final output hidden layer with softmax
-                hiddenStateTminus1LayerLplus1 = self.hiddenStateMatrix[ele1,ele2,:,:]
-                hiddenStateTLayerL = self.inputMatrixX[ele1,ele2,:,:]
-                itaLayerLPlus1 = (self.Whh[:,:,ele1] @ hiddenStateTminus1LayerLplus1) + (self.Wxh[:,:,ele1] @ hiddenStateTLayerL)
+                hiddenStateTminus1LayerLplus1 = self.hiddenStateMatrix[ele1][ele2,:,:]
+                hiddenStateTLayerL = self.inputMatrixX[ele1][ele2,:,:]
+                itaLayerLPlus1 = (self.Whh[ele1] @ hiddenStateTminus1LayerLplus1) + (self.Wxh[ele1] @ hiddenStateTLayerL)
                 if (ele1 != self.numRNNLayers): # All RNN layers have tanh/sigmoid activatio fn. Last layer has softmax activation fn
                     hiddenStateTLayerLplus1 = self.activation_function(itaLayerLPlus1, 'tanh')
                 else:
                     hiddenStateTLayerLplus1 = self.activation_function(itaLayerLPlus1, 'softmax')
 
-                self.ita[ele1,ele2,:,:] = itaLayerLPlus1
-                self.inputMatrixX[ele1+1,ele2,1::,:] = hiddenStateTLayerLplus1
+                self.ita[ele1][ele2,:,:] = itaLayerLPlus1
+                self.inputMatrixX[ele1+1][ele2,1::,:] = hiddenStateTLayerLplus1
 
                 if (ele1 != self.numRNNLayers):
-                    self.hiddenStateMatrix[ele1,ele2+1,:,:] = hiddenStateTLayerLplus1
+                    self.hiddenStateMatrix[ele1][ele2+1,:,:] = hiddenStateTLayerLplus1
                 else:
-                    self.hiddenStateMatrix[ele1,ele2+1,:,:] = 0
+                    self.hiddenStateMatrix[ele1][ele2+1,:,:] = self.hiddenStateMatrix[ele1][ele2,:,:] # carry forward the zeros from last output layer of previous time step
 
-                self.outputMatrix[ele1,ele2,:,:] = hiddenStateTLayerLplus1
+                self.outputMatrix[ele1][ele2,:,:] = hiddenStateTLayerLplus1
 
-        hiddenState = self.hiddenStateMatrix[:,-1,:,:]
+
+        hiddenState = [row[-1,:,:] for row in self.hiddenStateMatrix]
 
         return hiddenState
 
 
-
     def backwardpass_rnn(self,trainDataLabel):
         # trainDataLabel should be of shape numTimeSteps, outputShape, batch size
-        numTrainingSamples = trainDataLabel.shape[2]
+
         #Errors/delta = dL/d ita
-        self.errorMatrix = np.zeros((self.numRNNLayers+1, self.numTimeSteps, self.inputShape, numTrainingSamples),dtype=np.float32)
+        self.errorMatrix = [row.copy() for row in self.outputMatrix]
         for ele2 in range(self.numTimeSteps-1,-1,-1):
             for ele1 in range(self.numRNNLayers,-1,-1):
                 if (ele1 == self.numRNNLayers):
                     """ Final output layer for each time step"""
-                    self.errorMatrix[ele1,ele2,:,:] = self.outputMatrix[ele1,ele2,:,:] - trainDataLabel[ele2,:,:] # (y - d) For softmax activation function with categorical cross entropy cost function. Used for classification tasks.
+                    self.errorMatrix[ele1][ele2,:,:] = self.outputMatrix[ele1][ele2,:,:] - trainDataLabel[ele2,:,:] # (y - d) For softmax activation function with categorical cross entropy cost function. Used for classification tasks.
                 else:
-                    itaLayerL = self.ita[ele1,ele2,:,:]
+                    itaLayerL = self.ita[ele1][ele2,:,:]
                     activationFn = 'tanh'
                     activationFnDerivative = self.derivative_activation_function(itaLayerL,activationFn)
                     if (ele2 == self.numTimeSteps-1):
-                        self.errorMatrix[ele1,ele2,:,:] = (self.Wxh[:,1::,ele1+1].T @ self.errorMatrix[ele1+1,ele2,:,:]) * activationFnDerivative
+                        self.errorMatrix[ele1][ele2,:,:] = (self.Wxh[ele1+1][:,1::].T @ self.errorMatrix[ele1+1][ele2,:,:]) * activationFnDerivative
                     else:
-                        self.errorMatrix[ele1,ele2,:,:] = ((self.Wxh[:,1::,ele1+1].T @ self.errorMatrix[ele1+1,ele2,:,:]) +
-                                                      (self.Whh[:,:,ele1].T @ self.errorMatrix[ele1,ele2+1,:,:])) * activationFnDerivative
+                        self.errorMatrix[ele1][ele2,:,:] = ((self.Wxh[ele1+1][:,1::].T @ self.errorMatrix[ele1+1][ele2,:,:]) +
+                                                      (self.Whh[ele1].T @ self.errorMatrix[ele1][ele2+1,:,:])) * activationFnDerivative
 
+        # Need to change below lines for 2d lists of 2d arrays
         # np.clip(self.errorMatrix, -5, 5, out=self.errorMatrix) # Clip to prevent exploding gradients
 
         # plt.hist(self.errorMatrix[0,:,:,0].flatten(),bins=50)
@@ -211,31 +284,56 @@ class RecurrentNeuralNetwork():
 
     def update_weights_rnn(self):
 
-        # Add comments
-        batchSize = self.errorMatrix.shape[-1]
 
-        outputEachLayer = self.inputMatrixX[0:self.numRNNLayers+1,:,:,:] # Last layer is the final output which we are not interested in!
-        outputEachLayer = np.transpose(outputEachLayer,(0,1,3,2))
-        tempGradientsWxh = (self.errorMatrix @ outputEachLayer)/batchSize # Division is to take mean across gradients of a batch
-        gradientCostFnwrtWxh = np.sum(tempGradientsWxh,axis=1) # same size as W_xh
-        # gradientCostFnwrtWxh = np.mean(tempGradientsWxh,axis=1)
-        gradientCostFnwrtWxh = np.transpose(gradientCostFnwrtWxh,(1,2,0))
+        batchSize = self.errorMatrix[0].shape[-1]
 
-        np.clip(gradientCostFnwrtWxh, -5, 5, out=gradientCostFnwrtWxh)
+        # 1. Slice layers from inputMatrixX (exclude last layer)
+        outputEachLayer = [row.copy() for row in self.inputMatrixX[0:self.numRNNLayers+1]] # Last layer is the final output which we are not interested in!
 
-        # Updates weights W_xh and biases
-        self.Wxh =  self.Wxh - self.stepsize*gradientCostFnwrtWxh # Gradient descent step
 
-        hiddenStateEachLayer = self.hiddenStateMatrix[:,0:self.numTimeSteps,:,:]
-        hiddenStateEachLayer = np.transpose(hiddenStateEachLayer,(0,1,3,2))
-        tempGradientsWhh = (self.errorMatrix @ hiddenStateEachLayer)/batchSize
-        gradientCostFnwrtWhh = np.sum(tempGradientsWhh,axis=1)
-        # gradientCostFnwrtWhh = np.mean(tempGradientsWhh,axis=1)
-        gradientCostFnwrtWhh = np.transpose(gradientCostFnwrtWhh,(1,2,0))
+        # 3. Batch-wise matrix multiply errorMatrix and outputEachLayer, divide by batchSize. # Division is to take mean across gradients of a batch
+        tempGradientsWxh = [
+        		(self.errorMatrix[i] @ np.transpose(outputEachLayer[i],(0,2,1))) / batchSize
+        	for i in range(len(self.errorMatrix))
+        ]
 
-        np.clip(gradientCostFnwrtWhh, -5, 5, out=gradientCostFnwrtWhh)
+        # 4. Sum tempGradientsWxh across time steps (axis=1)
+        gradientCostFnwrtWxh = [np.sum(tempGradientsWxh[i],axis=0) for i in range(len(tempGradientsWxh))]
+        # gradientCostFnwrtWxh = [np.mean(tempGradientsWxh[i],axis=0) for i in range(len(tempGradientsWxh))]
 
-        self.Whh = self.Whh - self.stepsize*gradientCostFnwrtWhh
+
+        # Below line needs to be modified for lists
+        # np.clip(gradientCostFnwrtWxh, -5, 5, out=gradientCostFnwrtWxh)
+
+        # 6. Gradient descent update
+        self.Wxh = [W - self.stepsize * grad for W, grad in zip(self.Wxh, gradientCostFnwrtWxh)]
+
+
+
+
+        # 7. Slice hiddenStateMatrix for all layers and only first numTimeSteps
+        hiddenStateEachLayer = [row[0:self.numTimeSteps,:,:].copy() for row in self.hiddenStateMatrix]
+
+
+        # 9. Batch-wise matrix multiply errorMatrix and hiddenStateEachLayer, divide by batchSize. # Division is to take mean across gradients of a batch
+        tempGradientsWhh = [
+                (self.errorMatrix[i] @ np.transpose(hiddenStateEachLayer[i],(0,2,1))) / batchSize
+            for i in range(len(self.errorMatrix))
+        ]
+
+        # 10. Sum tempGradientsWhh across time steps
+        gradientCostFnwrtWhh = [np.sum(tempGradientsWhh[i],axis=0) for i in range(len(tempGradientsWhh))]
+        # gradientCostFnwrtWhh = [np.mean(tempGradientsWhh[i],axis=0) for i in range(len(tempGradientsWhh))]
+
+
+        # Below line needs to be modified for lists
+        # np.clip(gradientCostFnwrtWhh, -5, 5, out=gradientCostFnwrtWhh)
+
+        # 12. Gradient descent update
+        self.Whh = [W - self.stepsize * grad for W, grad in zip(self.Whh, gradientCostFnwrtWhh)]
+
+
+
 
 
     def compute_forward_backward_pass_rnn(self, trainDataSample, trainDataLabel, hiddenState):
@@ -307,7 +405,6 @@ class RecurrentNeuralNetwork():
             predSeqLen = 200
             self.predict(predSeqLen) # Generate a character sequence of length = predSeqLen, at the end of each epoch
 
-            # self.predict_debug(predSeqLen)
 
 
     def compute_loss_function(self,trainDataLabel, predictedOutput):
@@ -333,7 +430,7 @@ class RecurrentNeuralNetwork():
 
         randBatchInd = np.random.randint(0,self.params["n_train_batches"])
         """ For stateful RNN, we may not need to shuffle the data while training, I think. Will verify this!"""
-        hiddenState = np.zeros((self.numRNNLayers+1, self.inputShape, self.batchsize),dtype=np.float32)
+        hiddenState = [np.zeros((self.hiddenShape[ele], self.batchsize), dtype=np.float32) for ele in range(self.numRNNLayers + 1)]
         for batch_step in range(self.params["n_train_batches"]):
             trainDataSample, trainDataLabel = get_batch(
                 self.params["train_data_segments"],
@@ -343,7 +440,7 @@ class RecurrentNeuralNetwork():
                 self.params["vocab_size"],
             )
             if (batch_step == randBatchInd):
-                self.hiddenStateForPredict = hiddenState[:,:,0] # Sample the previous hidden state for 1 example since prediction works with 1 sample at a time
+                self.hiddenStateForPredict = [h[:, 0] for h in hiddenState] # Sample the previous hidden state for 1 example since prediction works with 1 sample at a time
                 self.startIdx = np.argmax(trainDataSample[0,0,:]) # Store the starting character idx for the next sequence starting
             t1 = time.time()
             trainDataSample = np.transpose(trainDataSample,(1,2,0))
@@ -363,9 +460,9 @@ class RecurrentNeuralNetwork():
 
         But within an epoch, the hidden state is carried forward across the batches and examples"""
 
-        actualOutputAllTrainData = np.zeros((self.numTimeSteps,self.inputShape,self.batchsize, self.params["n_train_batches"]))
-        predictedOutputAllTrainData = np.zeros((self.numTimeSteps,self.inputShape,self.batchsize, self.params["n_train_batches"]))
-        hiddenState = np.zeros((self.numRNNLayers+1, self.inputShape, self.batchsize),dtype=np.float32) # Currently hidden state being rolled back to 0!
+        actualOutputAllTrainData = np.zeros((self.numTimeSteps,self.outputShape,self.batchsize, self.params["n_train_batches"]))
+        predictedOutputAllTrainData = np.zeros((self.numTimeSteps,self.outputShape,self.batchsize, self.params["n_train_batches"]))
+        hiddenState = [np.zeros((self.hiddenShape[ele], self.batchsize), dtype=np.float32) for ele in range(self.numRNNLayers + 1)] # Currently hidden state being rolled back to 0!
         for batch_step in range(self.params["n_train_batches"]):
             trainDataSample, trainDataLabel = get_batch(
                 self.params["train_data_segments"],
@@ -378,12 +475,12 @@ class RecurrentNeuralNetwork():
             trainDataSample = np.transpose(trainDataSample,(1,2,0))
             trainDataLabel = np.transpose(trainDataLabel,(1,2,0))
             hiddenState = self.forwardpass_rnn(trainDataSample,hiddenState)
-            predictedOutputAllTrainData[:,:,:,batch_step] = self.outputMatrix[-1,:,:,:]
+            predictedOutputAllTrainData[:,:,:,batch_step] = self.outputMatrix[-1]
             actualOutputAllTrainData[:,:,:,batch_step] = trainDataLabel
 
 
-        predictedOutputAllTrainData = predictedOutputAllTrainData.reshape(self.numTimeSteps,self.inputShape,self.batchsize*self.params["n_train_batches"])
-        actualOutputAllTrainData = actualOutputAllTrainData.reshape(self.numTimeSteps,self.inputShape,self.batchsize*self.params["n_train_batches"])
+        predictedOutputAllTrainData = predictedOutputAllTrainData.reshape(self.numTimeSteps,self.outputShape,self.batchsize*self.params["n_train_batches"])
+        actualOutputAllTrainData = actualOutputAllTrainData.reshape(self.numTimeSteps,self.outputShape,self.batchsize*self.params["n_train_batches"])
         self.trainingLoss = self.compute_loss_function(actualOutputAllTrainData, predictedOutputAllTrainData)
         self.trainingLossArray.append(self.trainingLoss) # Keep appending the cost/loss function value for each epoch
         self.get_accuracy(actualOutputAllTrainData, predictedOutputAllTrainData)
@@ -401,9 +498,9 @@ class RecurrentNeuralNetwork():
         """
 
 
-        actualOutputAllValidationData = np.zeros((self.numTimeSteps,self.inputShape,self.batchsize, self.params["n_val_batches"]))
-        predictedOutputAllValidationData = np.zeros((self.numTimeSteps,self.inputShape,self.batchsize, self.params["n_val_batches"]))
-        hiddenState = np.zeros((self.numRNNLayers+1, self.inputShape, self.batchsize),dtype=np.float32) # Currently hidden state being rolled back to 0!
+        actualOutputAllValidationData = np.zeros((self.numTimeSteps,self.outputShape,self.batchsize, self.params["n_val_batches"]))
+        predictedOutputAllValidationData = np.zeros((self.numTimeSteps,self.outputShape,self.batchsize, self.params["n_val_batches"]))
+        hiddenState = [np.zeros((self.hiddenShape[ele], self.batchsize), dtype=np.float32) for ele in range(self.numRNNLayers + 1)] # Currently hidden state being rolled back to 0!
         for batch_step in range(self.params["n_val_batches"]):
             validationDataSample, validationDataLabel = get_batch(
                 self.params["val_data_segments"],
@@ -416,12 +513,12 @@ class RecurrentNeuralNetwork():
             validationDataSample = np.transpose(validationDataSample,(1,2,0))
             validationDataLabel = np.transpose(validationDataLabel,(1,2,0))
             hiddenState = self.forwardpass_rnn(validationDataSample,hiddenState)
-            predictedOutputAllValidationData[:,:,:,batch_step] = self.outputMatrix[-1,:,:,:]
+            predictedOutputAllValidationData[:,:,:,batch_step] = self.outputMatrix[-1]
             actualOutputAllValidationData[:,:,:,batch_step] = validationDataLabel
 
 
-        predictedOutputAllValidationData = predictedOutputAllValidationData.reshape(self.numTimeSteps,self.inputShape,self.batchsize*self.params["n_val_batches"])
-        actualOutputAllValidationData = actualOutputAllValidationData.reshape(self.numTimeSteps,self.inputShape,self.batchsize*self.params["n_val_batches"])
+        predictedOutputAllValidationData = predictedOutputAllValidationData.reshape(self.numTimeSteps,self.outputShape,self.batchsize*self.params["n_val_batches"])
+        actualOutputAllValidationData = actualOutputAllValidationData.reshape(self.numTimeSteps,self.outputShape,self.batchsize*self.params["n_val_batches"])
         self.validationLoss = self.compute_loss_function(actualOutputAllValidationData, predictedOutputAllValidationData)
         self.validationLossArray.append(self.validationLoss) # Keep appending the cost/loss function value for each epoch
         self.get_accuracy(actualOutputAllValidationData, predictedOutputAllValidationData)
@@ -441,7 +538,7 @@ class RecurrentNeuralNetwork():
 
 
         textString = ''
-        hiddenStateTminus1LayerLplus1 = self.hiddenStateForPredict
+        hiddenStateTminus1LayerLplus1 = [arr.copy() for arr in self.hiddenStateForPredict]
         idx = self.startIdx
         startingchar = self.params['idx2char'][idx]
         textString += startingchar
@@ -455,17 +552,17 @@ class RecurrentNeuralNetwork():
 
             for ele1 in range(self.numRNNLayers+1):
 
-                ita = (self.Whh[:,:,ele1] @ hiddenStateTminus1LayerLplus1[ele1,:]) + (self.Wxh[:,:,ele1] @ inputVector)
+                ita = (self.Whh[ele1] @ hiddenStateTminus1LayerLplus1[ele1]) + (self.Wxh[ele1] @ inputVector)
 
                 if (ele1 != self.numRNNLayers): # All RNN layers have tanh/sigmoid activatio fn. Last layer has softmax activation fn
                     hiddenStateTLayerLplus1 = self.activation_function(ita, 'tanh')
                     inputVector = np.concatenate(([1],hiddenStateTLayerLplus1)) # Prepended with 1 to take care of bias
-                    hiddenStateTminus1LayerLplus1[ele1,:] = hiddenStateTLayerLplus1 # Overwrite/Update the hidden state for next time step
+                    hiddenStateTminus1LayerLplus1[ele1] = hiddenStateTLayerLplus1 # Overwrite/Update the hidden state for next time step
                 else:
                     # Need input for softmax to be a vector and not ndarray
                     hiddenStateTLayerLplus1 = (self.activation_function(ita[:,None], 'softmax')).squeeze()
                     inputVector = hiddenStateTLayerLplus1 # This is the final output and hence no bias term required. Also, its a pmf
-                    hiddenStateTminus1LayerLplus1[ele1,:] = 0 # For last layer with no hidden state, set to 0
+                    hiddenStateTminus1LayerLplus1[ele1] = np.zeros((self.outputShape,),dtype=np.float32) # For last layer with no hidden state, set to 0
 
             """Input vector/output after looping through all the layers is a probability distribution over
             the vocabulary

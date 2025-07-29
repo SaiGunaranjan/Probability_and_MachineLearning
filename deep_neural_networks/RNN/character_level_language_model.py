@@ -23,7 +23,7 @@ numTimeSteps = 25
 
 
 rnn = RecurrentNeuralNetwork(inputShape, numRNNLayers, outputShape, numTimeSteps)
-rnn.set_model_params(batchsize = 1, epochs=5000, stepsize=1e-3) # epochs=1000, stepsize=1e-1
+rnn.set_model_params(batchsize = 1, epochs=2000, stepsize=1e-3) # epochs=1000, stepsize=1e-1
 rnn.preprocess_textfile(textfilepath)
 
 tstart = time.time()
