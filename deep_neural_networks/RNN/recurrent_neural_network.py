@@ -9,8 +9,10 @@ Created on Mon Jul 21 19:09:26 2025
 """
 Recurrent Neural network (RNN)
 
-Implemented a stateful RNN, where the final hidden state after N timesteps feeds in as input hidden state for the
-next batch of data
+Implemented a vanilla stateful RNN, where the final hidden state after N timesteps feeds in as input hidden state for the
+next batch of data. This is called a stateful RNN. I have also derived the back propagation algorithm to obtain the
+gradients of the cost function wrt weight matrices Whh and Wxh. The derivation is available in my onenote.
+I have also derived and shown how vanishing and exploding gradients is a problem in vanilla RNNs
 
 Trained on Harry Potter one chapter of text with:
     1. batch size of 32, was able to hit train_loss: 2.2, val_loss: 3.2, train_accuracy: 56.1, val_accuracy: 42.5 after 1000 epochs
@@ -65,11 +67,26 @@ Tasks:
     2. Understand how to define validation loss and accuracy in the contect of text generation
     3. Understand RNN behaviour when dealing with batches of training text.
     4. Implement gradient clipping
+    5. Check if we are witnessing vanishing and exploding gradients. In RNNs, exploding gradients problem can be
+    handled by clipping but what do we do about vanishing gradients? LSTMs/GRUs are the solutions. These variants
+    of RNNs avoid gradient vanishing by providing gradient flow paths!
+    6. Understand the importance of sequence length. How to choose sequence length?
+    7. Visualize the vanishing gradients across time steps.
 
 
+Interesting blog on RNNs by Andrej Karpathy:
+    http://karpathy.github.io/2015/05/21/rnn-effectiveness/
+and aslo a video on RNNs, LSTMs by ANdrej:
+    https://www.youtube.com/watch?v=yCC09vCHzF8
 
+Good stanford lecture on RNNs, LSTM, GRU:
+    https://www.youtube.com/watch?v=6niqTuYFZLQ&t=8s
 
+and also lectures by Mitesh Khapra on Deep learning
 
+I have used the above resourses for understanding RNNs.
+
+Regularization is not used often in RNNs/LSTMs, etc.
 
 """
 
