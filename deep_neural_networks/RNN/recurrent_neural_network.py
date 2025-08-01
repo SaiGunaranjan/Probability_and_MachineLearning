@@ -63,15 +63,19 @@ for text data.
 
 
 Tasks:
-    1. Understand impact of exploding gradients.
+    1. Understand impact of exploding gradients.[Done]
     2. Understand how to define validation loss and accuracy in the contect of text generation
     3. Understand RNN behaviour when dealing with batches of training text.
-    4. Implement gradient clipping
-    5. Check if we are witnessing vanishing and exploding gradients. In RNNs, exploding gradients problem can be
-    handled by clipping but what do we do about vanishing gradients? LSTMs/GRUs are the solutions. These variants
-    of RNNs avoid gradient vanishing by providing gradient flow paths!
-    6. Understand the importance of sequence length. How to choose sequence length?
-    7. Visualize the vanishing gradients across time steps.
+    4. Implement gradient clipping.
+    5. Check if we are witnessing vanishing and exploding gradients.[Done]. With larger sequence length/time steps,
+    I'm observing exploding gradients! (Weight initialization is using Xavier)
+    6. In RNNs, exploding gradients problem can be handled by clipping but what do we do about
+    vanishing gradients? LSTMs/GRUs are the solutions. These variants of RNNs avoid gradient vanishing
+    by providing gradient flow paths!
+    7. Understand the importance of sequence length. How to choose sequence length?[Done] Larger sequence lengths
+    is the objective for gaining more context in predicting next character, but in RNNs, it can lead to vanishing or exploding gradients.
+    When I changed the number of time steps from 25 to 100, immediately I observed exploding gradients!
+    8. Visualize the vanishing gradients across time steps.
 
 
 Interesting blog on RNNs by Andrej Karpathy:
@@ -122,8 +126,8 @@ class RecurrentNeuralNetwork():
         for ele in range(self.numRNNLayers+1):
             fanInWhh = fanOutWhh = self.hiddenShape[ele]
             fanOutWxh = fanOutWhh
-            scalingFactorXavierInitWhh = np.sqrt(2/(fanInWhh+fanOutWhh)) * 5/3
-            scalingFactorXavierInitWxh = np.sqrt(2/(fanInWxh+fanOutWxh)) * 5/3
+            scalingFactorXavierInitWhh = np.sqrt(2/(fanInWhh+fanOutWhh)) * 5/3 #0.01#
+            scalingFactorXavierInitWxh = np.sqrt(2/(fanInWxh+fanOutWxh)) * 5/3 #0.01#
 
             if (ele == self.numRNNLayers):
                 Whh = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32) # Final output layer doesnt have a hidden state input and hence Whh for final layer is 0
@@ -299,12 +303,15 @@ class RecurrentNeuralNetwork():
         # Need to change below lines for 2d lists of 2d arrays
         # np.clip(self.errorMatrix, -5, 5, out=self.errorMatrix) # Clip to prevent exploding gradients
 
-        # plt.hist(self.errorMatrix[0,:,:,0].flatten(),bins=50)
+        # plt.hist(self.errorMatrix[0][:,:,0].flatten(),bins=50)
         # print('\n\n')
-        # print('Min value of gradient: {0:.1f}'.format(np.amin(self.errorMatrix[0,:,:,0].flatten())))
-        # print('Max value of gradient: {0:.1f}'.format(np.amax(self.errorMatrix[0,:,:,0].flatten())))
+        # print('Min value of gradient: {0:.1f}'.format(np.amin(self.errorMatrix[0][:,:,0].flatten())))
+        # print('Max value of gradient: {0:.1f}'.format(np.amax(self.errorMatrix[0][:,:,0].flatten())))
         # percentile = 95
-        # print('{0} percentile value of gradient: {1:.1f}'.format(percentile, np.percentile(np.abs(self.errorMatrix[0,:,:,0].flatten()),percentile)))
+        # print('{0} percentile value of gradient: {1:.1f}'.format(percentile, np.percentile(np.abs(self.errorMatrix[0][:,:,0].flatten()),percentile)))
+
+        # print('Std at last time step = {0:.3f}'.format(np.std(self.errorMatrix[0][-1,:,0])))
+        # print('Std at first time step = {0:.3f}'.format(np.std(self.errorMatrix[0][0,:,0])))
         # print('--')
 
     def update_weights_rnn(self):

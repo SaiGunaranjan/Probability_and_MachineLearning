@@ -19,7 +19,7 @@ vocab_size = len(idx2char)
 inputShape = vocab_size
 numRNNLayers = 1
 outputShape = vocab_size
-numTimeSteps = 25
+numTimeSteps = 25 #300
 
 
 rnn = RecurrentNeuralNetwork(inputShape, numRNNLayers, outputShape, numTimeSteps)
