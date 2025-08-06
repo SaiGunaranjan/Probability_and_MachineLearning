@@ -195,6 +195,10 @@ class MLFFNeuralNetwork():
         self.runMeanList = []
         self.runVarList = []
         self.numParamsEachDenseLayer = []
+        # Below list is used to store the gradients for each time step when using LSTMs
+        self.gradientCostFnwrtWeights = []
+        self.gradientCostFnwrtGammaScaling = []
+        self.gradientCostFnwrtBetaShift = []
         for ele in range(self.numLayers-1):
             """Weight matrix from layer l to layer l+1 """
             numNodesLayerL = self.networkArchitecture[ele][0]
@@ -214,6 +218,10 @@ class MLFFNeuralNetwork():
                 """ Below 2 arrays runningMean and runningVar are not parameters for NN. So no gradients required for these"""
                 runningMean = np.zeros((numNodesLayerL,))
                 runningVar = np.ones((numNodesLayerL,))
+
+                gradientCostFnwrtGammaScaling = np.zeros((numNodesLayerL,))
+                gradientCostFnwrtBetaShift = np.zeros((numNodesLayerL,))
+
             else:
                 """ Weight initialization using He method"""
                 fan_in = numNodesLayerL
@@ -225,6 +233,10 @@ class MLFFNeuralNetwork():
                 runningMean = np.empty([0])
                 runningVar = np.empty([0])
 
+                gradientCostFnwrtGammaScaling = np.empty([0])
+                gradientCostFnwrtBetaShift = np.empty([0])
+
+            gradientCostFnwrtWeights = np.zeros((numNodesLayerLplus1,numNodesLayerL+1))
 
             numParamsEachDenseLayer = weightMatrix.size + gammaScaling.size + betaShift.size
             self.numParamsEachDenseLayer.append(numParamsEachDenseLayer)
@@ -233,6 +245,10 @@ class MLFFNeuralNetwork():
             self.betaList.append(betaShift)
             self.runMeanList.append(runningMean)
             self.runVarList.append(runningVar)
+            self.gradientCostFnwrtWeights.append(gradientCostFnwrtWeights)
+            self.gradientCostFnwrtGammaScaling.append(gradientCostFnwrtGammaScaling)
+            self.gradientCostFnwrtBetaShift.append(gradientCostFnwrtBetaShift)
+
 
         self.epsillon = 1e-8 # To take care of division by a 0 in the denominator
 
@@ -433,10 +449,10 @@ class MLFFNeuralNetwork():
         self.backwardpass(trainDataLabel)
 
         """ Update weights"""
-        self.update_weights()
+        self.compute_gradients_and_update_weights()
 
 
-    def update_weights(self):
+    def compute_gradients_and_update_weights(self):
         # Errors/delta obtained for all the layers from 2 to L
         # Compute gradient wrt Wl_ij
         # dJ/dWl_ij = deltal+1_j * yi_l
@@ -455,6 +471,49 @@ class MLFFNeuralNetwork():
                 gradientCostFnwrtBetaShift = np.mean(self.errorEachLayer[self.numLayers-1-ele5], axis=1) # delta^l is arranged in reverse order
                 self.gammaList[ele5] = self.gammaList[ele5] - self.stepsize*gradientCostFnwrtGammaScaling
                 self.betaList[ele5] = self.betaList[ele5] - self.stepsize*gradientCostFnwrtBetaShift
+
+
+
+    def compute_gradients(self):
+        """ This function computes the gradients of the cost function wrt the weights and BN scalings
+        of each layer. This function has been written to cater to LSTMs/RNNs, where we need to find
+        the gradients at each time step and then sum the gradients across all time steps.
+        This function is not used by MLFFNN per se! This is the same function as compute_gradients_and_update_weights but without updating
+        the weights but only computing gradients.
+        """
+
+        # Errors/delta obtained for all the layers from 2 to L
+        # Compute gradient wrt Wl_ij
+        # dJ/dWl_ij = deltal+1_j * yi_l
+        # gradient # dJ/dwij for all i,j
+        count = -1
+        for ele4 in range(self.numLayers-1):
+            batchSize = self.errorEachLayer[count].shape[1]
+            self.gradientCostFnwrtWeights[ele4] = (self.errorEachLayer[count] @ self.outputEachlayer[ele4].T)/batchSize # Division becuase we want to get the mean of the gradients across all data points
+            count -= 1
+
+
+        # Can ideally optimize this loop and put it into above loop as well. I will do this later
+        for ele5 in range(1,self.numLayers): # This starts from 1 since 0th layer i.e input layer anyways has no BN
+            if (self.networkArchitecture[ele5][2] == 1):
+                self.gradientCostFnwrtGammaScaling[ele5] = np.mean(self.errorEachLayer[self.numLayers-1-ele5] * self.ItaNormalized[ele5-1], axis=1) # delta^l * ita^^l
+                self.gradientCostFnwrtBetaShift[ele5] = np.mean(self.errorEachLayer[self.numLayers-1-ele5], axis=1) # delta^l is arranged in reverse order
+
+
+
+    def update_weights(self,gradientCostFnwrtWeights, gradientCostFnwrtGammaScaling, gradientCostFnwrtBetaShift):
+        """ This function only updates the weights and BN parameters using the gradients computed and uses
+        gradient descent. This function too has been written to cater to LSTM and not used by DNN/CNN"""
+
+        for ele4 in range(self.numLayers-1):
+            self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights[ele4] # Gradient descent step
+
+        # Can ideally optimize this loop and put it into above loop as well. I will do this later
+        for ele5 in range(1,self.numLayers): # This starts from 1 since 0th layer i.e input layer anyways has no BN
+            if (self.networkArchitecture[ele5][2] == 1):
+                self.gammaList[ele5] = self.gammaList[ele5] - self.stepsize*gradientCostFnwrtGammaScaling[ele5]
+                self.betaList[ele5] = self.betaList[ele5] - self.stepsize*gradientCostFnwrtBetaShift[ele5]
+
 
 
     def train_nn(self,trainData,trainDataLabels,split = 1):
@@ -1104,7 +1163,7 @@ class ConvolutionalNeuralNetwork():
 
             count -= 1
 
-        self.mlffnn.update_weights()
+        self.mlffnn.compute_gradients_and_update_weights()
         # print('gradientCostFnwrtKernelWeightsAllDataPoints', gradientCostFnwrtKernelWeightsAllDataPoints[10,1,2,25])
         # print('kernel weight [2]', self.kernelWeights[2][10,1,2,25])
 
