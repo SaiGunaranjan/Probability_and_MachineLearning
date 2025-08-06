@@ -181,6 +181,7 @@ import time as time
 # from cupyx.scipy.signal import convolve2d
 # cupyx.scipy.signal.correlate2d()
 # import sys
+# np.seterr(over='raise')
 
 class MLFFNeuralNetwork():
 
@@ -271,6 +272,12 @@ class MLFFNeuralNetwork():
 
     def tanh(self,z):
         # tanh = (np.exp(z) - np.exp(-z)) / (np.exp(z) + np.exp(-z))
+
+        # try:
+        #     ePowpz = np.exp(z)
+        # except FloatingPointError:
+        #     print("Overflow detected!")
+
         ePowpz = np.exp(z)
         ePowmz = np.exp(-z)
         return (ePowpz - ePowmz) / (ePowpz + ePowmz)
@@ -463,10 +470,8 @@ class MLFFNeuralNetwork():
             gradientCostFnwrtWeights = (self.errorEachLayer[count] @ self.outputEachlayer[ele4].T)/batchSize # Division becuase we want to get the mean of the gradients across all data points
             self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights # Gradient descent step
             count -= 1
-
-        # Can ideally optimize this loop and put it into above loop as well. I will do this later
-        for ele5 in range(1,self.numLayers): # This starts from 1 since 0th layer i.e input layer anyways has no BN
-            if (self.networkArchitecture[ele5][2] == 1):
+            ele5 = ele4 + 1 # because BN params start from layer 1, which is weight layer 0+1
+            if (self.networkArchitecture[ele5][2] == 1): # check if BN is enabled
                 gradientCostFnwrtGammaScaling = np.mean(self.errorEachLayer[self.numLayers-1-ele5] * self.ItaNormalized[ele5-1], axis=1) # delta^l * ita^^l
                 gradientCostFnwrtBetaShift = np.mean(self.errorEachLayer[self.numLayers-1-ele5], axis=1) # delta^l is arranged in reverse order
                 self.gammaList[ele5] = self.gammaList[ele5] - self.stepsize*gradientCostFnwrtGammaScaling
@@ -491,11 +496,8 @@ class MLFFNeuralNetwork():
             batchSize = self.errorEachLayer[count].shape[1]
             self.gradientCostFnwrtWeights[ele4] = (self.errorEachLayer[count] @ self.outputEachlayer[ele4].T)/batchSize # Division becuase we want to get the mean of the gradients across all data points
             count -= 1
-
-
-        # Can ideally optimize this loop and put it into above loop as well. I will do this later
-        for ele5 in range(1,self.numLayers): # This starts from 1 since 0th layer i.e input layer anyways has no BN
-            if (self.networkArchitecture[ele5][2] == 1):
+            ele5 = ele4 + 1 # because BN params start from layer 1, which is weight layer 0+1
+            if (self.networkArchitecture[ele5][2] == 1): # check if BN is enabled
                 self.gradientCostFnwrtGammaScaling[ele5] = np.mean(self.errorEachLayer[self.numLayers-1-ele5] * self.ItaNormalized[ele5-1], axis=1) # delta^l * ita^^l
                 self.gradientCostFnwrtBetaShift[ele5] = np.mean(self.errorEachLayer[self.numLayers-1-ele5], axis=1) # delta^l is arranged in reverse order
 
@@ -507,9 +509,7 @@ class MLFFNeuralNetwork():
 
         for ele4 in range(self.numLayers-1):
             self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights[ele4] # Gradient descent step
-
-        # Can ideally optimize this loop and put it into above loop as well. I will do this later
-        for ele5 in range(1,self.numLayers): # This starts from 1 since 0th layer i.e input layer anyways has no BN
+            ele5 = ele4 + 1 # because BN params start from layer 1, which is weight layer 0+1
             if (self.networkArchitecture[ele5][2] == 1):
                 self.gammaList[ele5] = self.gammaList[ele5] - self.stepsize*gradientCostFnwrtGammaScaling[ele5]
                 self.betaList[ele5] = self.betaList[ele5] - self.stepsize*gradientCostFnwrtBetaShift[ele5]
