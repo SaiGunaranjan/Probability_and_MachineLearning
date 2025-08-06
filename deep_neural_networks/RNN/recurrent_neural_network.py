@@ -227,7 +227,7 @@ class RecurrentNeuralNetwork():
 
     def define_inputmatrix(self,trainDataSample):
         self.inputMatrixX = []
-        for layer in range(self.numRNNLayers + 2):
+        for layer in range(self.numRNNLayers + 2): # self.numRNNLayers number of inputs, + 1 for input to Fully connected layer, + 1 for final output
         	cell = np.ones((self.numTimeSteps, self.inputShapeEachLayer[layer]+1, self.batchsize), dtype=np.float32) ## self.inputShape+1 is for the bias
         	if layer == 0:
         		cell[:,1::, :] = trainDataSample # 1st term is for the bias term
@@ -261,19 +261,13 @@ class RecurrentNeuralNetwork():
                 itaLayerLPlus1 = (self.Whh[ele1] @ hiddenStateTminus1LayerLplus1) + (self.Wxh[ele1] @ hiddenStateTLayerL)
                 if (ele1 != self.numRNNLayers): # All RNN layers have tanh/sigmoid activatio fn. Last layer has softmax activation fn
                     hiddenStateTLayerLplus1 = self.activation_function(itaLayerLPlus1, 'tanh')
+                    self.hiddenStateMatrix[ele1][ele2+1,:,:] = hiddenStateTLayerLplus1
                 else:
                     hiddenStateTLayerLplus1 = self.activation_function(itaLayerLPlus1, 'softmax')
 
                 self.ita[ele1][ele2,:,:] = itaLayerLPlus1
                 self.inputMatrixX[ele1+1][ele2,1::,:] = hiddenStateTLayerLplus1
-
-                if (ele1 != self.numRNNLayers):
-                    self.hiddenStateMatrix[ele1][ele2+1,:,:] = hiddenStateTLayerLplus1
-                else:
-                    self.hiddenStateMatrix[ele1][ele2+1,:,:] = self.hiddenStateMatrix[ele1][ele2,:,:] # carry forward the zeros from last output layer of previous time step
-
                 self.outputMatrix[ele1][ele2,:,:] = hiddenStateTLayerLplus1
-
 
         hiddenState = [row[-1,:,:] for row in self.hiddenStateMatrix] # hidden state of each layer and last time step is stored and used as input hidden state of next charcter
 
@@ -284,7 +278,7 @@ class RecurrentNeuralNetwork():
         # trainDataLabel should be of shape numTimeSteps, outputShape, batch size
 
         #Errors/delta = dL/d ita
-        self.errorMatrix = [row.copy() for row in self.outputMatrix]
+        self.errorMatrix = [np.zeros(row.shape, dtype=row.dtype) for row in self.outputMatrix]
         for ele2 in range(self.numTimeSteps-1,-1,-1):
             for ele1 in range(self.numRNNLayers,-1,-1):
                 if (ele1 == self.numRNNLayers):
