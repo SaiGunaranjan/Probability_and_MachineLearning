@@ -6,7 +6,7 @@ Created on Wed Jul 23 16:17:59 2025
 """
 
 
-from recurrent_neural_network import RecurrentNeuralNetwork
+from rnn_class import RecurrentNeuralNetwork
 from textfile_preprocessing import load_text_file, create_vocab
 import time as time
 
