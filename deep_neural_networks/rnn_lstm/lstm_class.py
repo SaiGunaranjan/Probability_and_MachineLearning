@@ -99,7 +99,7 @@ But, I will need to verify the correctness of the implementation. Also, I have b
 (that comes after the LSTM layers) from my DNN library implementation. There are more optimizations to be done
 which I will do next. The following are the tasks:
     1. Convert explicit for loops in lists to list comprehension both for RNN as well as LSTM.
-    2. Check with multi layer FC layer post NN/LST layers. Check if the code runs.
+    2. Check with multi layer FC layer post NN/LST layers. Check if the code runs.[Done. Code is running without crashing]
     3. Replace einsum with normal matrix multipcation(@), since it is much slower than @.[Done]
     4. Remove redundant functions which are available in both LSTM and DNN class.[Done]
     5. Replace cellStateValid with cellStateCurrent.[Done]
@@ -107,6 +107,7 @@ which I will do next. The following are the tasks:
     7. Optimize the function update_weights and compute_gradients in the DNN code.[Done]
     8. Change everywhere from RNN to lstm.[Done]
     9. LSTM Suffering from exploding gradients and code is crashing!
+    10. Check for the correctness of LSTM and BPTT implementation
 
 
 """
