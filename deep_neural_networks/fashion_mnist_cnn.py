@@ -88,14 +88,16 @@ numOutputNodes = Y_test.shape[0]
 
 
 """ Reference architecture from:
-    https://medium.com/@sanjay_dutta/building-a-baseline-convolutional-neural-network-for-fashion-mnist-600634e5feef"""
+    https://medium.com/@sanjay_dutta/building-a-baseline-convolutional-neural-network-for-fashion-mnist-600634e5feef
+"""
+
 """
     Without BN for both CNN and DNN, train accuracy = 89%, validation accuracy = 89%, test accuracy = 89%
     With BN for both CNN and DNN, train accuracy = 86%, validation accuracy = 86%, test accuracy = 86%. But I was expecting much better results with BN enabled! Not sure why this is happening. Need to debug the reason for this. May need to add regularization and/or drop outs.
     With BN for DNN and without BN for CNN, train accuracy = 85%, validation accuracy = 85%, test accuracy = 85%. This means that BN in DNN itself is limiting the perforamance.
     With BN for CNN and without BN for DNN, train accuracy = 94%, validation accuracy = 91%, test accuracy = 91%. This implies that BN for DNN is limiting the performance and that the CNN code and BN for CNN has been implemented correctly!
-
 """
+
 convLayer = [(32,3,'ReLU',1)] # Len of this list is the number of convolutional layers
 poolLayer = [(2,2,'maxpool')]
 denseLayer = [(100,'ReLU',0)] # #(#nodes, activation function) #Len of this list indicates number of hidden layers
