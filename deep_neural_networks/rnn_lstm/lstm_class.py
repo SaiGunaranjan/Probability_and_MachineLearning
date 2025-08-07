@@ -468,46 +468,43 @@ class LSTM():
 
         """ Input gate contribution"""
         itaInputGateLayerL = self.itaInputGate[ele1+1][ele2,:,:]
-        activationFnDerivativeInputGate = self.mlffnn.derivative_activation_function(itaInputGateLayerL,'sigmoid')
-        gateGateT = self.gateGate[ele1+1][ele2,:,:]
+        doIbydoItaInputGate = self.mlffnn.derivative_activation_function(itaInputGateLayerL,'sigmoid')
+        doCtbydoIt = self.gateGate[ele1+1][ele2,:,:]
         outputGateT = self.outputGate[ele1+1][ele2,:,:]
         cellStateT = self.cellStateCurrent[ele1+1][ele2,:,:] # check the indexing
         activationFnDerivativecellState = self.mlffnn.derivative_activation_function(cellStateT,'tanh')
-        inputGatePath = activationFnDerivativeInputGate * gateGateT * outputGateT * \
-                activationFnDerivativecellState * del_ht_lplus1
+        doHtbydoCt = outputGateT * activationFnDerivativecellState
+        inputGatePath = doIbydoItaInputGate * doCtbydoIt * doHtbydoCt * del_ht_lplus1
 
 
         """ Forget gate contribution"""
         itaForgetGateLayerL = self.itaForgetGate[ele1+1][ele2,:,:]
-        activationFnDerivativeForgetGate = self.mlffnn.derivative_activation_function(itaForgetGateLayerL,'sigmoid')
-        cellStateTminus1 = self.cellStateCurrent[ele1+1][ele2-1,:,:] # check the indexing
+        doFbydoItaForgetGate = self.mlffnn.derivative_activation_function(itaForgetGateLayerL,'sigmoid')
+        doCtbydoFt = self.cellStateCurrent[ele1+1][ele2-1,:,:] # cellStateTminus1
         outputGateT = self.outputGate[ele1+1][ele2,:,:]
         cellStateT = self.cellStateCurrent[ele1+1][ele2,:,:] # check the indexing
         activationFnDerivativecellState = self.mlffnn.derivative_activation_function(cellStateT,'tanh')
-        forgetGatePath = activationFnDerivativeForgetGate * \
-            cellStateTminus1 * outputGateT * \
-                activationFnDerivativecellState * del_ht_lplus1
+        doHtbydoCt = outputGateT * activationFnDerivativecellState
+        forgetGatePath = doFbydoItaForgetGate * doCtbydoFt * doHtbydoCt * del_ht_lplus1
 
 
         """ Output gate contribution"""
         itaOutputGateLayerL = self.itaOutputGate[ele1+1][ele2,:,:]
-        activationFnDerivativeOutputGate = self.mlffnn.derivative_activation_function(itaOutputGateLayerL,'sigmoid')
+        doObydoItaOutputGate = self.mlffnn.derivative_activation_function(itaOutputGateLayerL,'sigmoid')
         cellStateT = self.cellStateCurrent[ele1+1][ele2,:,:]
-        activationFncellState = self.mlffnn.activation_function(cellStateT,'tanh')
-        outputGatePath = activationFnDerivativeOutputGate * \
-                activationFncellState * del_ht_lplus1
+        doHtbydoOt = self.mlffnn.activation_function(cellStateT,'tanh')
+        outputGatePath = doObydoItaOutputGate * doHtbydoOt * del_ht_lplus1
 
 
         """ Gate gate contribution"""
         itaGateGateLayerL = self.itaGateGate[ele1+1][ele2,:,:]
-        activationFnDerivativeGateGate = self.mlffnn.derivative_activation_function(itaGateGateLayerL,'tanh')
-        inputGateT = self.inputGate[ele1+1][ele2,:,:]
+        doGbydoItaGateGate = self.mlffnn.derivative_activation_function(itaGateGateLayerL,'tanh')
+        doCtbydoGt = self.inputGate[ele1+1][ele2,:,:]
         outputGateT = self.outputGate[ele1+1][ele2,:,:]
         cellStateT = self.cellStateCurrent[ele1+1][ele2,:,:] # check the indexing
         activationFnDerivativecellState = self.mlffnn.derivative_activation_function(cellStateT,'tanh')
-        gateGatePath = activationFnDerivativeGateGate * \
-            inputGateT * outputGateT * \
-                activationFnDerivativecellState * del_ht_lplus1
+        doHtbydoCt = outputGateT * activationFnDerivativecellState
+        gateGatePath = doGbydoItaGateGate * doCtbydoGt * doHtbydoCt * del_ht_lplus1
 
 
         gradFromLayerLplus1TimeT = (self.WxhInputGate[ele1+1][:,1::].T @ inputGatePath) + \
@@ -526,46 +523,43 @@ class LSTM():
 
         """ Input gate contribution"""
         itaInputGateLayerL = self.itaInputGate[ele1][ele2+1,:,:]
-        activationFnDerivativeInputGate = self.mlffnn.derivative_activation_function(itaInputGateLayerL,'sigmoid')
-        gateGateT = self.gateGate[ele1][ele2+1,:,:]
+        doIbydoItaInputGate = self.mlffnn.derivative_activation_function(itaInputGateLayerL,'sigmoid')
+        doCtbydoIt = self.gateGate[ele1][ele2+1,:,:]
         outputGateT = self.outputGate[ele1][ele2+1,:,:]
         cellStateT = self.cellStateCurrent[ele1][ele2+1,:,:] # check the indexing
         activationFnDerivativecellState = self.mlffnn.derivative_activation_function(cellStateT,'tanh')
-        inputGatePath = activationFnDerivativeInputGate * gateGateT * outputGateT * \
-                activationFnDerivativecellState * del_htplus1_l
+        doHtbydoCt = outputGateT * activationFnDerivativecellState
+        inputGatePath = doIbydoItaInputGate * doCtbydoIt * doHtbydoCt * del_htplus1_l
 
 
         """ Forget gate contribution"""
         itaForgetGateLayerL = self.itaForgetGate[ele1][ele2+1,:,:]
-        activationFnDerivativeForgetGate = self.mlffnn.derivative_activation_function(itaForgetGateLayerL,'sigmoid')
-        cellStateTminus1 = self.cellStateCurrent[ele1][ele2,:,:] # check the indexing
+        doFbydoItaForgetGate = self.mlffnn.derivative_activation_function(itaForgetGateLayerL,'sigmoid')
+        doCtbydoFt = self.cellStateCurrent[ele1][ele2,:,:] # cellStateTminus1
         outputGateT = self.outputGate[ele1][ele2+1,:,:]
         cellStateT = self.cellStateCurrent[ele1][ele2+1,:,:] # check the indexing
         activationFnDerivativecellState = self.mlffnn.derivative_activation_function(cellStateT,'tanh')
-        forgetGatePath = activationFnDerivativeForgetGate * \
-            cellStateTminus1 * outputGateT * \
-                activationFnDerivativecellState * del_htplus1_l
+        doHtbydoCt = outputGateT * activationFnDerivativecellState
+        forgetGatePath = doFbydoItaForgetGate * doCtbydoFt * doHtbydoCt * del_htplus1_l
 
 
         """ Output gate contribution"""
         itaOutputGateLayerL = self.itaOutputGate[ele1][ele2+1,:,:]
-        activationFnDerivativeOutputGate = self.mlffnn.derivative_activation_function(itaOutputGateLayerL,'sigmoid')
+        doObydoItaOutputGate = self.mlffnn.derivative_activation_function(itaOutputGateLayerL,'sigmoid')
         cellStateT = self.cellStateCurrent[ele1][ele2+1,:,:] # check the indexing
-        activationFncellState = self.mlffnn.activation_function(cellStateT,'tanh')
-        outputGatePath = activationFnDerivativeOutputGate * \
-                activationFncellState * del_htplus1_l
+        doHtbydoOt = self.mlffnn.activation_function(cellStateT,'tanh')
+        outputGatePath = doObydoItaOutputGate * doHtbydoOt * del_htplus1_l
 
 
         """ Gate gate contribution"""
         itaGateGateLayerL = self.itaGateGate[ele1][ele2+1,:,:]
-        activationFnDerivativeGateGate = self.mlffnn.derivative_activation_function(itaGateGateLayerL,'tanh')
-        inputGateT = self.inputGate[ele1][ele2+1,:,:]
+        doGbydoItaGateGate = self.mlffnn.derivative_activation_function(itaGateGateLayerL,'tanh')
+        doCtbydoGt = self.inputGate[ele1][ele2+1,:,:]
         outputGateT = self.outputGate[ele1][ele2+1,:,:]
         cellStateT = self.cellStateCurrent[ele1][ele2+1,:,:] # check the indexing
         activationFnDerivativecellState = self.mlffnn.derivative_activation_function(cellStateT,'tanh')
-        gateGatePath = activationFnDerivativeGateGate * \
-            inputGateT * outputGateT * \
-                activationFnDerivativecellState * del_htplus1_l
+        doHtbydoCt = outputGateT * activationFnDerivativecellState
+        gateGatePath = doGbydoItaGateGate * doCtbydoGt * doHtbydoCt * del_htplus1_l
 
 
         gradFromLayerLTimeTplus1 = ((self.WhhInputGate[ele1].T @ inputGatePath) + \
