@@ -106,9 +106,15 @@ which I will do next. The following are the tasks:
     6. Combine einsum and sum across time axis in the weight update step.[Not required right now]
     7. Optimize the function update_weights and compute_gradients in the DNN code.[Done]
     8. Change everywhere from RNN to lstm.[Done]
-    9. LSTM Suffering from exploding gradients and code is crashing!
-    10. Check for the correctness of LSTM and BPTT implementation
+    9. LSTM Suffering from exploding gradients and code is crashing! This needs to be fixed as asap
+    10. Check for the correctness of LSTM and BPTT implementation.
 
+
+07/08/2025
+
+I have fixed a major bug in computing the gradient of ht wrt to ot. dohtbydoot should have been tanh(ct) but
+I had wrongly put it as derivative of tanh(ct). I identified the bug while carefully going through the code
+one function at a time!
 
 """
 import sys
@@ -257,13 +263,13 @@ class LSTM():
 
     def define_itamatrix(self):
 
-        self.itaInputGate = [row.copy() for row in self.outputMatrix] # ita is same size as output matrix
-        self.itaForgetGate = [row.copy() for row in self.outputMatrix] # ita is same size as output matrix
-        self.itaOutputGate = [row.copy() for row in self.outputMatrix] # ita is same size as output matrix
-        self.itaGateGate = [row.copy() for row in self.outputMatrix] # ita is same size as output matrix
+        self.itaInputGate =  [np.zeros(row.shape, dtype=row.dtype) for row in self.outputMatrix] # ita is same size as output matrix
+        self.itaForgetGate =  [np.zeros(row.shape, dtype=row.dtype) for row in self.outputMatrix]
+        self.itaOutputGate =  [np.zeros(row.shape, dtype=row.dtype) for row in self.outputMatrix]
+        self.itaGateGate =  [np.zeros(row.shape, dtype=row.dtype) for row in self.outputMatrix]
 
 
-    def forwardpass_lstm(self, trainDataSample, trainDataLabel, hiddenState, cellState):
+    def forwardpass_lstm(self, trainDataSample, trainDataLabel, hiddenState, cellState, trainOrTestString):
 
         # numTrainingSamples = trainDataSample.shape[2] # batch size, 1st dimension is sequence length, 2nd dimension is length of vector, 3rd dimension is batch size
 
@@ -275,9 +281,11 @@ class LSTM():
         self.define_itamatrix()
 
         self.errorGradFeedIntoLSTM = [] # These are the error gradients feeding into the LSTM from the DNN after backprop in the MLFFNN for each time step
+        """ Storing all the gradients for the FC layer by doing a forward pass followed by backward pass for the FC layer post each time step."""
         self.dnnWeightGradients = []
         self.dnnBatchNormGammaScalingGradients = []
         self.dnnBatchNormBetaShiftGradients = []
+        """ Predicted output is post the FC layer"""
         self.predictedOutputAllTimeSteps = np.zeros((self.numTimeSteps,self.outputShape,self.mlffnn.batchsize),dtype=np.float32)
         for ele2 in range(self.numTimeSteps):
 
@@ -302,7 +310,7 @@ class LSTM():
                 outputGate = self.mlffnn.activation_function(itaLayerLPlus1OutputGate, 'sigmoid')
                 gateGate = self.mlffnn.activation_function(itaLayerLPlus1GateGate, 'tanh')
 
-                cellStateT = (forgetGate * cellStateTminus1) + (inputGate * gateGate )
+                cellStateT = (forgetGate * cellStateTminus1) + (inputGate * gateGate)
                 hiddenStateTLayerLplus1 = outputGate * self.mlffnn.activation_function(cellStateT, 'tanh')
 
                 self.hiddenStateMatrix[ele1][ele2+1,:,:] = hiddenStateTLayerLplus1
@@ -319,7 +327,7 @@ class LSTM():
 
             """ For every time step, for the DNN part, do the forward pass, backward pass,
             compute and store the weight gradients and errors feeding into the LSTM"""
-            self.mlffnn.forwardpass(hiddenStateTLayerLplus1, 'train')
+            self.mlffnn.forwardpass(hiddenStateTLayerLplus1, trainOrTestString)
             self.predictedOutputAllTimeSteps[ele2,:,:] = self.mlffnn.predictedOutput # Store final output for each time step
             self.mlffnn.backwardpass(trainDataLabel[ele2,:,:])
             """ Back propagating error from dense layer to last RNN/LSTM layer"""
@@ -436,7 +444,7 @@ class LSTM():
     def gradient_ct_from_ht(self,ele1,ele2):
 
         outputGateT = self.outputGate[ele1][ele2,:,:]
-        cellStateT = self.cellStateCurrent[ele1][ele2,:,:] # check the indexing
+        cellStateT = self.cellStateCurrent[ele1][ele2,:,:]
         activationFnDerivativecellState = self.mlffnn.derivative_activation_function(cellStateT,'tanh')
         gradctFromht = self.doLbydoht[ele1][ele2,:,:] * activationFnDerivativecellState * outputGateT
 
@@ -484,10 +492,10 @@ class LSTM():
         """ Output gate contribution"""
         itaOutputGateLayerL = self.itaOutputGate[ele1+1][ele2,:,:]
         activationFnDerivativeOutputGate = self.mlffnn.derivative_activation_function(itaOutputGateLayerL,'sigmoid')
-        cellStateT = self.cellStateCurrent[ele1+1][ele2,:,:] # check the indexing
-        activationFnDerivativecellState = self.mlffnn.derivative_activation_function(cellStateT,'tanh')
+        cellStateT = self.cellStateCurrent[ele1+1][ele2,:,:]
+        activationFncellState = self.mlffnn.activation_function(cellStateT,'tanh')
         outputGatePath = activationFnDerivativeOutputGate * \
-                activationFnDerivativecellState * del_ht_lplus1
+                activationFncellState * del_ht_lplus1
 
 
         """ Gate gate contribution"""
@@ -543,9 +551,9 @@ class LSTM():
         itaOutputGateLayerL = self.itaOutputGate[ele1][ele2+1,:,:]
         activationFnDerivativeOutputGate = self.mlffnn.derivative_activation_function(itaOutputGateLayerL,'sigmoid')
         cellStateT = self.cellStateCurrent[ele1][ele2+1,:,:] # check the indexing
-        activationFnDerivativecellState = self.mlffnn.derivative_activation_function(cellStateT,'tanh')
+        activationFncellState = self.mlffnn.activation_function(cellStateT,'tanh')
         outputGatePath = activationFnDerivativeOutputGate * \
-                activationFnDerivativecellState * del_htplus1_l
+                activationFncellState * del_htplus1_l
 
 
         """ Gate gate contribution"""
@@ -553,7 +561,7 @@ class LSTM():
         activationFnDerivativeGateGate = self.mlffnn.derivative_activation_function(itaGateGateLayerL,'tanh')
         inputGateT = self.inputGate[ele1][ele2+1,:,:]
         outputGateT = self.outputGate[ele1][ele2+1,:,:]
-        cellStateT = self.cellStateMatrix[ele1][ele2+1,:,:] # check the indexing
+        cellStateT = self.cellStateCurrent[ele1][ele2+1,:,:] # check the indexing
         activationFnDerivativecellState = self.mlffnn.derivative_activation_function(cellStateT,'tanh')
         gateGatePath = activationFnDerivativeGateGate * \
             inputGateT * outputGateT * \
@@ -610,8 +618,8 @@ class LSTM():
         itaGateGateLayerL = self.itaGateGate[ele1]
         doGtbydoItaGateGate = self.mlffnn.derivative_activation_function(itaGateGateLayerL,'tanh')
         doCtbydoGt = self.inputGate[ele1]
-        doLbydoItaOutputGate = self.doLbydoct[ele1] * doCtbydoGt * doGtbydoItaGateGate
-        tempGradientsWGateGate = np.einsum('ijk,ilk->ilj',outputEachLayer[ele1], doLbydoItaOutputGate,optimize=True)/self.mlffnn.batchsize
+        doLbydoItaGateGate = self.doLbydoct[ele1] * doCtbydoGt * doGtbydoItaGateGate
+        tempGradientsWGateGate = np.einsum('ijk,ilk->ilj',outputEachLayer[ele1], doLbydoItaGateGate,optimize=True)/self.mlffnn.batchsize
         gradientCostFnwrtWGateGate = np.sum(tempGradientsWGateGate,axis=0) # Sum across time steps
 
         return gradientCostFnwrtWGateGate
@@ -686,7 +694,7 @@ class LSTM():
 
         """ Forward pass"""
         t1 = time.time()
-        hiddenState, cellState = self.forwardpass_lstm(trainDataSample, trainDataLabel, hiddenState, cellState)
+        hiddenState, cellState = self.forwardpass_lstm(trainDataSample, trainDataLabel, hiddenState, cellState, 'train')
         # predictedOutput = self.outputMatrix[-1,:,:,:]
         t2 = time.time()
         # print('Time taken for forward pass = {0:.2f} s'.format(t2-t1))
@@ -823,7 +831,7 @@ class LSTM():
 
             trainDataSample = np.transpose(trainDataSample,(1,2,0))
             trainDataLabel = np.transpose(trainDataLabel,(1,2,0))
-            hiddenState, cellState = self.forwardpass_lstm(trainDataSample,trainDataLabel,hiddenState,cellState)
+            hiddenState, cellState = self.forwardpass_lstm(trainDataSample,trainDataLabel,hiddenState,cellState, 'test')
             predictedOutputAllTrainData[:,:,:,batch_step] = self.predictedOutputAllTimeSteps
             actualOutputAllTrainData[:,:,:,batch_step] = trainDataLabel
 
@@ -864,7 +872,7 @@ class LSTM():
 
             validationDataSample = np.transpose(validationDataSample,(1,2,0))
             validationDataLabel = np.transpose(validationDataLabel,(1,2,0))
-            hiddenState,cellState = self.forwardpass_lstm(validationDataSample,validationDataLabel,hiddenState,cellState)
+            hiddenState,cellState = self.forwardpass_lstm(validationDataSample,validationDataLabel,hiddenState,cellState,'test')
             predictedOutputAllValidationData[:,:,:,batch_step] = self.predictedOutputAllTimeSteps
             actualOutputAllValidationData[:,:,:,batch_step] = validationDataLabel
 
