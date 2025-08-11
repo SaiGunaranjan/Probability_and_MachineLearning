@@ -154,6 +154,9 @@ BN set to 0!
 
 Next I will implement the Batch Normalization for CNN.[Done]
 
+Good blog for Batch normalization:
+    https://towardsdatascience.com/batch-norm-explained-visually-how-it-works-and-why-neural-networks-need-it-b18919692739/
+
 27/06/2025
 I have tested the iris dataset with a simple ANN and batch normalization.
 With the batch normalization, the training and validation accuracy have improved and it is hitting
@@ -328,10 +331,10 @@ class MLFFNeuralNetwork():
     def compute_loss_function(self,trainDataLabel):
 
         if (self.costfn == 'categorical_cross_entropy'):
-            mask = self.predictedOutput !=0 # Avoid 0 values in log2 evaluation. But this is not correct. It can mask wrong classifications.
             batchSize = self.predictedOutput.shape[1]
             # cost fn = -Sum(di*log(yi))/N, where di is the actual output and yi is the predicted output, N is the batch size.
-            costFunction = (-np.sum((trainDataLabel[mask]*np.log2(self.predictedOutput[mask]))))/batchSize # Mean loss across data points
+            eps = 1e-12 # eps added inside log to cater to cases where the softmax gives close to 0 for some of the elements
+            costFunction = (-np.sum(trainDataLabel * np.log2(self.predictedOutput + eps))) / batchSize # Mean loss across data points
         elif (self.costfn == 'squared_error'):
             batchSize = self.predictedOutput.shape[1]
             # cost fn = 1/2 Sum((yi - di)**2)/N, where di is the actual output and yi is the predicted output, N is the batch size
@@ -495,6 +498,7 @@ class MLFFNeuralNetwork():
         for ele4 in range(self.numLayers-1):
             batchSize = self.errorEachLayer[count].shape[1]
             self.gradientCostFnwrtWeights[ele4] = (self.errorEachLayer[count] @ self.outputEachlayer[ele4].T)/batchSize # Division becuase we want to get the mean of the gradients across all data points
+            # print('Max val of do L / do W DNN = {0:.4f}'.format(np.amax(np.abs(self.gradientCostFnwrtWeights[ele4]))))
             count -= 1
             ele5 = ele4 + 1 # because BN params start from layer 1, which is weight layer 0+1
             if (self.networkArchitecture[ele5][2] == 1): # check if BN is enabled
