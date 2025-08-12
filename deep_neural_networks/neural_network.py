@@ -168,6 +168,11 @@ Also, CNN has some bugs in updating the kernels weights[I believe I have now fix
 22/07/2025
 1. Keep Batch normalization into a separate function instead of corrupting the forward pass
 
+12/08/2025
+1. Weight initialization based on activation functions used in that layer
+2. Split the compute_gradients_update_weights function into individual functions which compute gradients separately
+and other function which does weight update separately.
+
 
 
 
@@ -203,6 +208,7 @@ class MLFFNeuralNetwork():
         self.gradientCostFnwrtWeights = []
         self.gradientCostFnwrtGammaScaling = []
         self.gradientCostFnwrtBetaShift = []
+
 
         for ele in range(self.numLayers-1):
             """Weight matrix from layer l to layer l+1 """

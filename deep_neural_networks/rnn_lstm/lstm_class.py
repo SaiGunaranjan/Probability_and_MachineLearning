@@ -106,9 +106,12 @@ which I will do next. The following are the tasks:
     6. Combine einsum and sum across time axis in the weight update step.[Not required right now]
     7. Optimize the function update_weights and compute_gradients in the DNN code.[Done]
     8. Change everywhere from RNN to lstm.[Done]
-    9. LSTM Suffering from exploding gradients and code is crashing! This needs to be fixed as asap
-    10. Check for the correctness of LSTM and BPTT implementation.
+    9. LSTM Suffering from exploding gradients and code is crashing! This needs to be fixed as asap[Done]. Fixed with scaling with time steps and global norm clipping
+    10. Check for the correctness of LSTM and BPTT implementation.[Done]
     11. Remove repeated partical derivatives computation!
+    12. The training accuracy and loss stagnating for character level language mode with LSTM.
+    Need to debug this very carefully. High priority item.
+    Essentially I have not been able to get the LSTM working like RNN for character level language model.
 
 
 07/08/2025
@@ -125,16 +128,45 @@ Fixed bug in computing previous cell state
 In this commit, I have fixed a bug in computing Ct-1 when t=0. I was sampling the cellStateCurrent[t-1,:,:] to obatin the previous cell state. This is fine as long as t >=1. But when t is 0, then it becomes
 cellStateCurrent[-1,:,:]! Which means it will sample the last/latest cell state post the forward pass! Where as I wanted the cell state at t=-1. SO this was a bug which was identified by chatGPT 5.0 version. This was a very good catch. I have now fixed it by sampling cellStatePrevious[t,:,:] instead of cellStateCurrent[t-1,:,:]. This bug was present in Forget gate contribution of gradient_ht_from_top.
 
-The other major issue I was facing was the stack crashing due to very large value input to the tanh activation function. On caeful analysis, I observed that the cell state was drfitng to very large values across epochs. Also, when I montored the do L / do ct and do L/ do ht, it was hitting 60,000! All this was causing the code to crash across 1500 epochs with a LR = 1e-2. After a lot of discussion with chatGPT, it suggested to keep the gradients low by normalizing across time steps as well. And so, I have replaced the sum of gradients across time steps with mean across time steps to lower the weight update and prevent large values at the input of the tanh activation and thus prevent crashes. Now, I dont see any code crashes even after 2000 epochs even with a hig lr of 1e-2. Tis is because, we have further scaled down the gradients by the time steps.
+The other major issue I was facing was the stack crashing due to very large value input to the tanh
+activation function. On caeful analysis, I observed that the cell state was drifting to very large values
+across epochs. Also, when I montored the do L / do ct and do L/ do ht, it was hitting 60,000!
+All this was causing the code to crash across 1500 epochs with a LR = 1e-2.
+After a lot of discussion with chatGPT, it suggested to keep the gradients low by normalizing
+across time steps as well. And so, I have replaced the sum of gradients across time steps with
+mean across time steps to lower the weight update and prevent large values at the input of the
+tanh activation and thus prevent crashes. Now, I dont see any code crashes even after 2000 epochs
+even with a hig lr of 1e-2. This is because, we have further scaled down the gradients by the time steps.
+The stack crash has been avoided but the LSTM is not able to achieve any accuracy above 30% on the
+character level language model. Need to debug this.
 
 
-LSTMs (and in fact RNNs) suffer from exploding gradients problem. Due to this, the update to the parameter weights becomes large and this can cause stack crashes when evaluating the exp of very large values. To avoid this, I have implemented a global norm clipping which normalizes the gradient values so that the updates to the parameter weights doesnt blow up and is controlled. I have removed the element wise clipping of the gradients since this is not the correct way to do and causes non differentiable operations in the gradient flow. In global norm clipping, we first compute the L2 norm squared of each of the parameter gradients (across time and layers) and then sum them all up and then take square root to obtain a global L2 normal of all the gradient parameters across time and layers. If the global norm is above some threshold say maxNorm, then we scale all the gradients to cap the norm to maxNorm. If the global norm is within the maxNorm margin, then we dont do anything. This is called the global norm clipping. For this, I have introduced some list variables to store all the gradients across time and layers.
+LSTMs (and in fact RNNs) suffer from exploding gradients problem.
+Due to this, the update to the parameter weights becomes large and this can cause stack crashes
+when evaluating the exp of very large values. To avoid this, I have implemented a global norm clipping
+which normalizes the gradient values so that the updates to the parameter weights doesnt blow up and
+is controlled. I have removed the element wise clipping of the gradients since this is not the
+correct way to do and causes non differentiable operations in the gradient flow. In global norm clipping,
+we first compute the L2 norm squared of each of the parameter gradients (across time and layers) and then
+sum them all up and then take square root to obtain a global L2 normal of all the gradient parameters
+across time and layers. If the global norm is above some threshold say maxNorm, then we scale all the
+gradients to cap the norm to maxNorm. If the global norm is within the maxNorm margin,
+then we dont do anything. This is called the global norm clipping. For this, I have introduced some
+list variables to store all the gradients across time and layers.
 
 
 Following are the other changes made in this commit:
 1. While computing the loss function for categorical cross entropy, I was masking predicted values which were 0s to avoid them in the log computation. But this is not correct, since this will mask cases where the true label is 1. This is not the correct way to do. Instead just add a small eps to avoid 0s in the log computation. I have mde this change both in the LSTM as well as DNN class.
 2. Added some commented out print statements to monitor the norm of do L / do ct, do L / do ht, max, min, mean values of the cell states, etc. These are debug hooks to check for exploding gradients and cell state run off.
 3. Broke up the update_weights function into 2 sub functions, namely compute_gradients(which only computes the gradients and also the global norm) followed by update_weights(which only does weight update using Gradient descent).
+
+11/08/2025
+1. Implemented the Adam optimizer. Reference videos of CS7015 Deep Learning lectures by Mitesh Khapra:
+    https://www.youtube.com/watch?v=FKCV76N9Ys0&list=PLyqSpQzTE6M9gCgajvQbc68Hk_JKGBAYT&index=42
+I have aslo understood the other commonly used weight update optimizers like Adagrad, RMSProp.
+
+2. Changed the weight initialization for the Whh, Wxh matrices for i,f,o,g gates.
+Used LeCun based weight initialization for sigmoid activation functions and Xavier for tanh
 
 """
 import sys
@@ -167,7 +199,6 @@ class LSTM():
         # self.numTotalLayers = 1 + self.numLSTMLayers + 1 # (1 for input, 1 for output, numRNNLayers)
 
         """ Weight initialization"""
-        """ Xavier method of weight initialization for tanh activation for vanilla RNN"""
 
         self.hiddenShape = hiddenStateVecLengthEachLSTMLayer # # cell state vector has the same dimension hidden state vector
         self.inputShapeEachLayer = np.zeros((self.numLSTMLayers+1,),dtype=np.int32) # Size of input to each RNN/LSTM layer and also includes the final output of the rnn/lstm layer
@@ -199,31 +230,87 @@ class LSTM():
         self.gradientCostFnwrtWhhOutputGate = []
         self.gradientCostFnwrtWhhGateGate = []
 
+        """ Storing Running mean/ EMA of the gradients and magnitude square of gradients """
+        self.mt_gradientCostFnwrtWxhInputGate = []
+        self.mt_gradientCostFnwrtWxhForgetGate = []
+        self.mt_gradientCostFnwrtWxhOutputGate = []
+        self.mt_gradientCostFnwrtWxhGateGate = []
+
+        self.mt_gradientCostFnwrtWhhInputGate = []
+        self.mt_gradientCostFnwrtWhhForgetGate = []
+        self.mt_gradientCostFnwrtWhhOutputGate = []
+        self.mt_gradientCostFnwrtWhhGateGate = []
+
+
+        self.vt_gradientCostFnwrtWxhInputGate = []
+        self.vt_gradientCostFnwrtWxhForgetGate = []
+        self.vt_gradientCostFnwrtWxhOutputGate = []
+        self.vt_gradientCostFnwrtWxhGateGate = []
+
+        self.vt_gradientCostFnwrtWhhInputGate = []
+        self.vt_gradientCostFnwrtWhhForgetGate = []
+        self.vt_gradientCostFnwrtWhhOutputGate = []
+        self.vt_gradientCostFnwrtWhhGateGate = []
+
         for ele in range(self.numLSTMLayers):
             fanInWhh = fanOutWhh = self.hiddenShape[ele]
             fanOutWxh = fanOutWhh
-            scalingFactorXavierInitWhh = np.sqrt(2/(fanInWhh+fanOutWhh)) * 5/3 #0.01#
-            scalingFactorXavierInitWxh = np.sqrt(2/(fanInWxh+fanOutWxh)) * 5/3 #0.01#
 
-            WhhInputGate = np.random.randn(fanOutWhh, fanInWhh) * scalingFactorXavierInitWhh
+            """ LeCun initialization for Sigmoid activation. N(0,1/fan_in)
+            Xavier initialization for tanh activation. N(0,2/(fan_in + fan_out))
+            I, F, O have sigmoid activations and hence LeCun initialization.
+            G has tanh activation and hence Xavier initialization
+
+            """
+
+
+            WhhInputGate = np.random.randn(fanOutWhh, fanInWhh) * np.sqrt(1/(fanInWhh))
             gradientCostFnwrtWhhInputGate = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32)
-            WhhForgetGate = np.random.randn(fanOutWhh, fanInWhh) * scalingFactorXavierInitWhh
+            mt_gradientCostFnwrtWhhInputGate = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32) # Running mean/EMA of the gradients across time
+            vt_gradientCostFnwrtWhhInputGate = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32) # Running mean/EMA of the magnitude of gradients across time
+
+            WhhForgetGate = np.random.randn(fanOutWhh, fanInWhh) * np.sqrt(1/(fanInWhh))
             gradientCostFnwrtWhhForgetGate = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32)
-            WhhOutputGate = np.random.randn(fanOutWhh, fanInWhh) * scalingFactorXavierInitWhh
+            mt_gradientCostFnwrtWhhForgetGate = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32) # Running mean/EMA of the gradients across time
+            vt_gradientCostFnwrtWhhForgetGate = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32) # Running mean/EMA of the magnitude of gradients across time
+
+            WhhOutputGate = np.random.randn(fanOutWhh, fanInWhh) * np.sqrt(1/(fanInWhh))
             gradientCostFnwrtWhhOutputGate = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32)
-            WhhGateGate = np.random.randn(fanOutWhh, fanInWhh) * scalingFactorXavierInitWhh
+            mt_gradientCostFnwrtWhhOutputGate = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32) # Running mean/EMA of the gradients across time
+            vt_gradientCostFnwrtWhhOutputGate = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32) # Running mean/EMA of the magnitude of gradients across time
+
+
+            WhhGateGate = np.random.randn(fanOutWhh, fanInWhh) * np.sqrt(2/(fanInWhh+fanOutWhh))
             gradientCostFnwrtWhhGateGate = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32)
+            mt_gradientCostFnwrtWhhGateGate = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32) # Running mean/EMA of the gradients across time
+            vt_gradientCostFnwrtWhhGateGate = np.zeros((fanOutWhh, fanInWhh),dtype=np.float32) # Running mean/EMA of the magnitude of gradients across time
 
 
-            WxhInputGate = np.random.randn(fanOutWxh, fanInWxh) * scalingFactorXavierInitWxh # self.inputShape+1 absorbs the bias term to the Wxh matrix, self.numLSTMLayers+1 is for the final output layer
+
+            WxhInputGate = np.random.randn(fanOutWxh, fanInWxh) * np.sqrt(1/(fanInWxh)) # self.inputShape+1 absorbs the bias term to the Wxh matrix, self.numLSTMLayers+1 is for the final output layer
             gradientCostFnwrtWxhInputGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32)
-            WxhForgetGate = np.random.randn(fanOutWxh, fanInWxh) * scalingFactorXavierInitWxh # self.inputShape+1 absorbs the bias term to the Wxh matrix, self.numLSTMLayers+1 is for the final output layer
-            # WxhForgetGate[:,0] += 1 # We are making the bias for the forget get large to begin with. This way, the pre-activation to the forget gate becomes large and hence the forget gate becomes close to 1. So it means, initially, the forget gate passes the entire info of the previous cell state. This is a common trcik used.
+            mt_gradientCostFnwrtWxhInputGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32) # Running mean/EMA of the gradients across time
+            vt_gradientCostFnwrtWxhInputGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32) # Running mean/EMA of the magnitude square of gradients across time
+
+
+            WxhForgetGate = np.random.randn(fanOutWxh, fanInWxh) * np.sqrt(1/(fanInWxh)) # self.inputShape+1 absorbs the bias term to the Wxh matrix, self.numLSTMLayers+1 is for the final output layer
+            # WxhForgetGate[:,0] += -1 # We are making the bias for the forget get large to begin with. This way, the pre-activation to the forget gate becomes large and hence the forget gate becomes close to 1. So it means, initially, the forget gate passes the entire info of the previous cell state. This is a common trcik used.
             gradientCostFnwrtWxhForgetGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32)
-            WxhOutputGate = np.random.randn(fanOutWxh, fanInWxh) * scalingFactorXavierInitWxh # self.inputShape+1 absorbs the bias term to the Wxh matrix, self.numLSTMLayers+1 is for the final output layer
+            mt_gradientCostFnwrtWxhForgetGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32) # Running mean/EMA of the gradients across time
+            vt_gradientCostFnwrtWxhForgetGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32) # Running mean/EMA of the magnitude square of gradients across time
+
+
+            WxhOutputGate = np.random.randn(fanOutWxh, fanInWxh) * np.sqrt(1/(fanInWxh)) # self.inputShape+1 absorbs the bias term to the Wxh matrix, self.numLSTMLayers+1 is for the final output layer
             gradientCostFnwrtWxhOutputGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32)
-            WxhGateGate = np.random.randn(fanOutWxh, fanInWxh) * scalingFactorXavierInitWxh # self.inputShape+1 absorbs the bias term to the Wxh matrix, self.numLSTMLayers+1 is for the final output layer
+            mt_gradientCostFnwrtWxhOutputGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32) # Running mean/EMA of the gradients across time
+            vt_gradientCostFnwrtWxhOutputGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32) # Running mean/EMA of the magnitude square of gradients across time
+
+
+            WxhGateGate = np.random.randn(fanOutWxh, fanInWxh) * np.sqrt(2/(fanInWxh+fanOutWxh)) # self.inputShape+1 absorbs the bias term to the Wxh matrix, self.numLSTMLayers+1 is for the final output layer
             gradientCostFnwrtWxhGateGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32)
+            mt_gradientCostFnwrtWxhGateGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32) # Running mean/EMA of the gradients across time
+            vt_gradientCostFnwrtWxhGateGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32) # Running mean/EMA of the magnitude square of gradients across time
+
 
             fanInWxh = fanOutWhh + 1 # fanOutWhh+1 absorbs the bias term to the Wxh matrix
 
@@ -248,6 +335,28 @@ class LSTM():
             self.gradientCostFnwrtWhhOutputGate.append(gradientCostFnwrtWhhOutputGate)
             self.gradientCostFnwrtWhhGateGate.append(gradientCostFnwrtWhhGateGate)
 
+            """ Running mean/ EMA of the gradients and magnitude square of gradients"""
+            self.mt_gradientCostFnwrtWxhInputGate.append(mt_gradientCostFnwrtWxhInputGate)
+            self.mt_gradientCostFnwrtWxhForgetGate.append(mt_gradientCostFnwrtWxhForgetGate)
+            self.mt_gradientCostFnwrtWxhOutputGate.append(mt_gradientCostFnwrtWxhOutputGate)
+            self.mt_gradientCostFnwrtWxhGateGate.append(mt_gradientCostFnwrtWxhGateGate)
+
+            self.mt_gradientCostFnwrtWhhInputGate.append(mt_gradientCostFnwrtWhhInputGate)
+            self.mt_gradientCostFnwrtWhhForgetGate.append(mt_gradientCostFnwrtWhhForgetGate)
+            self.mt_gradientCostFnwrtWhhOutputGate.append(mt_gradientCostFnwrtWhhOutputGate)
+            self.mt_gradientCostFnwrtWhhGateGate.append(mt_gradientCostFnwrtWhhGateGate)
+
+
+            self.vt_gradientCostFnwrtWxhInputGate.append(vt_gradientCostFnwrtWxhInputGate)
+            self.vt_gradientCostFnwrtWxhForgetGate.append(vt_gradientCostFnwrtWxhForgetGate)
+            self.vt_gradientCostFnwrtWxhOutputGate.append(vt_gradientCostFnwrtWxhOutputGate)
+            self.vt_gradientCostFnwrtWxhGateGate.append(vt_gradientCostFnwrtWxhGateGate)
+
+            self.vt_gradientCostFnwrtWhhInputGate.append(vt_gradientCostFnwrtWhhInputGate)
+            self.vt_gradientCostFnwrtWhhForgetGate.append(vt_gradientCostFnwrtWhhForgetGate)
+            self.vt_gradientCostFnwrtWhhOutputGate.append(vt_gradientCostFnwrtWhhOutputGate)
+            self.vt_gradientCostFnwrtWhhGateGate.append(vt_gradientCostFnwrtWhhGateGate)
+
         # Define the dense layer/FC layer
         lstmOutputLayer = [(self.hiddenShape[-1],'Identity',0)] # input to dense layer will not have BN
         denseLayerArchitecture = lstmOutputLayer + denseLayer + outputLayer
@@ -255,6 +364,8 @@ class LSTM():
 
         self.maxCellStateVal = []
         self.maxNorm = 5 # MaxNorm to clip the gradients to!
+        self.beta1 = 0.9
+        self.beta2 = 0.999
 
 
         # print('Im here')
@@ -389,7 +500,7 @@ class LSTM():
                 cellStateT = (forgetGate * cellStateTminus1) + (inputGate * gateGate)
                 hiddenStateTLayerLplus1 = outputGate * self.mlffnn.activation_function(cellStateT, 'tanh')
 
-                # if trainOrTestString == 'train' and ele2 < 10:   # small number of steps to log
+                # if self.batch_step==0 and ele2 < 10:   # small number of steps to log
                 #     print(f"t={ele2} min/max/mean f: {forgetGate.min():.4f}/{forgetGate.max():.4f}/{forgetGate.mean():.4f}",
                 #           f" i: {inputGate.min():.4f}/{inputGate.max():.4f}/{inputGate.mean():.4f}",
                 #           f" | c_t min/max: {cellStateT.min():.4f}/{cellStateT.max():.4f}")
@@ -513,9 +624,10 @@ class LSTM():
 
                     self.doLbydoct[ele1][ele2,:,:] =  gradctFromctPlus1 + gradctFromht
 
-                # norm_ht = np.linalg.norm(self.doLbydoht[ele1][ele2,:,:])
-                # norm_ct = np.linalg.norm(self.doLbydoct[ele1][ele2,:,:])
-                # print(f"backprop t={ele2} layer={ele1} ||dL/dh||={norm_ht:.3e} ||dL/dc||={norm_ct:.3e}")
+            # if self.batch_step == 0:
+            #     norm_ht = np.linalg.norm(self.doLbydoht[0][ele2,:,:])
+            #     norm_ct = np.linalg.norm(self.doLbydoct[0][ele2,:,:])
+            #     print(f"backprop t={ele2} ||dL/dh||={norm_ht:.3e} ||dL/dc||={norm_ct:.3e}")
 
 
         # print('--')
@@ -762,13 +874,20 @@ class LSTM():
         self.gradientCostFnwrtDNNBNGammaScaling = [sum(arrays)/self.numTimeSteps for arrays in zip(*self.dnnBatchNormGammaScalingGradients)]
         self.gradientCostFnwrtDNNBNBetaShift = [sum(arrays)/self.numTimeSteps for arrays in zip(*self.dnnBatchNormBetaShiftGradients)]
 
+        # self.gradientCostFnwrtDNNWeights = [sum(arrays) for arrays in zip(*self.dnnWeightGradients)]
+        # self.gradientCostFnwrtDNNBNGammaScaling = [sum(arrays) for arrays in zip(*self.dnnBatchNormGammaScalingGradients)]
+        # self.gradientCostFnwrtDNNBNBetaShift = [sum(arrays) for arrays in zip(*self.dnnBatchNormBetaShiftGradients)]
+
         for ele in range(self.mlffnn.numLayers-1):
             self.globalNorm += np.sum(self.gradientCostFnwrtDNNWeights[ele] * self.gradientCostFnwrtDNNWeights[ele])
             self.globalNorm += np.sum(self.gradientCostFnwrtDNNBNGammaScaling[ele] * self.gradientCostFnwrtDNNBNGammaScaling[ele])
             self.globalNorm += np.sum(self.gradientCostFnwrtDNNBNBetaShift[ele] * self.gradientCostFnwrtDNNBNBetaShift[ele])
 
         self.globalNorm = np.sqrt(self.globalNorm) # Norm is sqrt of the sum of squares
-        # print('Global Norm = {0:.3f}'.format(self.globalNorm))
+
+        # if self.batch_step == 0:
+        #     print('\n Epoch {0}, Global Norm = {1:.3f}'.format(self.epochNum, self.globalNorm))
+
         """ Apply global norm clipping"""
         self.global_norm_clipping()
 
@@ -799,6 +918,69 @@ class LSTM():
 
 
 
+    def compute_momentum_gradients(self):
+
+
+        for ele1 in range(self.numLSTMLayers):
+
+            """  Compute mt and vt for Adam optimizer
+            mt = (beta1 * mt-1) + (1-beta1) * do L / do W
+            vt = (beta2 * vt-1) + (1-beta2) * (do L / do W)^^2
+            mt_ = mt /(1 - beta1**t)
+            vt_ = vt /(1 - beta2**t)
+            wt = wt-1 - alpha * mt_ /sqrt(vt_ + eps)
+            """
+
+            self.mt_gradientCostFnwrtWxhInputGate[ele1] = (self.beta1*self.mt_gradientCostFnwrtWxhInputGate[ele1]) + ((1-self.beta1)*self.gradientCostFnwrtWxhInputGate[ele1])
+            gradientCostFnwrtWxhInputGateMagSq = self.gradientCostFnwrtWxhInputGate[ele1] * self.gradientCostFnwrtWxhInputGate[ele1]
+            self.vt_gradientCostFnwrtWxhInputGate[ele1] = (self.beta2*self.vt_gradientCostFnwrtWxhInputGate[ele1]) + ((1-self.beta2)*gradientCostFnwrtWxhInputGateMagSq)
+
+
+            self.mt_gradientCostFnwrtWxhForgetGate[ele1] = (self.beta1*self.mt_gradientCostFnwrtWxhForgetGate[ele1]) + ((1-self.beta1)*self.gradientCostFnwrtWxhForgetGate[ele1])
+            gradientCostFnwrtWxhForgetGateMagSq = self.gradientCostFnwrtWxhForgetGate[ele1] * self.gradientCostFnwrtWxhForgetGate[ele1]
+            self.vt_gradientCostFnwrtWxhForgetGate[ele1] = (self.beta2*self.vt_gradientCostFnwrtWxhForgetGate[ele1]) + ((1-self.beta2)*gradientCostFnwrtWxhForgetGateMagSq)
+
+
+            self.mt_gradientCostFnwrtWxhOutputGate[ele1] = (self.beta1*self.mt_gradientCostFnwrtWxhOutputGate[ele1]) + ((1-self.beta1)*self.gradientCostFnwrtWxhOutputGate[ele1])
+            gradientCostFnwrtWxhOutputGateMagSq = self.gradientCostFnwrtWxhOutputGate[ele1] * self.gradientCostFnwrtWxhOutputGate[ele1]
+            self.vt_gradientCostFnwrtWxhOutputGate[ele1] = (self.beta2*self.vt_gradientCostFnwrtWxhOutputGate[ele1]) + ((1-self.beta2)*gradientCostFnwrtWxhOutputGateMagSq)
+
+
+
+            self.mt_gradientCostFnwrtWxhGateGate[ele1] = (self.beta1*self.mt_gradientCostFnwrtWxhGateGate[ele1]) + ((1-self.beta1)*self.gradientCostFnwrtWxhGateGate[ele1])
+            gradientCostFnwrtWxhGateGateMagSq = self.gradientCostFnwrtWxhGateGate[ele1] * self.gradientCostFnwrtWxhGateGate[ele1]
+            self.vt_gradientCostFnwrtWxhGateGate[ele1] = (self.beta2*self.vt_gradientCostFnwrtWxhGateGate[ele1]) + ((1-self.beta2)*gradientCostFnwrtWxhGateGateMagSq)
+
+
+
+
+
+
+            self.mt_gradientCostFnwrtWhhInputGate[ele1] = (self.beta1*self.mt_gradientCostFnwrtWhhInputGate[ele1]) + ((1-self.beta1)*self.gradientCostFnwrtWhhInputGate[ele1])
+            gradientCostFnwrtWhhInputGateMagSq = self.gradientCostFnwrtWhhInputGate[ele1] * self.gradientCostFnwrtWhhInputGate[ele1]
+            self.vt_gradientCostFnwrtWhhInputGate[ele1] = (self.beta2*self.vt_gradientCostFnwrtWhhInputGate[ele1]) + ((1-self.beta2)*gradientCostFnwrtWhhInputGateMagSq)
+
+
+            self.mt_gradientCostFnwrtWhhForgetGate[ele1] = (self.beta1*self.mt_gradientCostFnwrtWhhForgetGate[ele1]) + ((1-self.beta1)*self.gradientCostFnwrtWhhForgetGate[ele1])
+            gradientCostFnwrtWhhForgetGateMagSq = self.gradientCostFnwrtWhhForgetGate[ele1] * self.gradientCostFnwrtWhhForgetGate[ele1]
+            self.vt_gradientCostFnwrtWhhForgetGate[ele1] = (self.beta2*self.vt_gradientCostFnwrtWhhForgetGate[ele1]) + ((1-self.beta2)*gradientCostFnwrtWhhForgetGateMagSq)
+
+
+            self.mt_gradientCostFnwrtWhhOutputGate[ele1] = (self.beta1*self.mt_gradientCostFnwrtWhhOutputGate[ele1]) + ((1-self.beta1)*self.gradientCostFnwrtWhhOutputGate[ele1])
+            gradientCostFnwrtWhhOutputGateMagSq = self.gradientCostFnwrtWhhOutputGate[ele1] * self.gradientCostFnwrtWhhOutputGate[ele1]
+            self.vt_gradientCostFnwrtWhhOutputGate[ele1] = (self.beta2*self.vt_gradientCostFnwrtWhhOutputGate[ele1]) + ((1-self.beta2)*gradientCostFnwrtWhhOutputGateMagSq)
+
+
+            self.mt_gradientCostFnwrtWhhGateGate[ele1] = (self.beta1*self.mt_gradientCostFnwrtWhhGateGate[ele1]) + ((1-self.beta1)*self.gradientCostFnwrtWhhGateGate[ele1])
+            self.mtHat_gradientCostFnwrtWhhGateGate[ele1] = self.mt_gradientCostFnwrtWhhGateGate[ele1] / (1 - self.beta1**self.batch_step)
+            gradientCostFnwrtWhhGateGateMagSq = self.gradientCostFnwrtWhhGateGate[ele1] * self.gradientCostFnwrtWhhGateGate[ele1]
+            self.vt_gradientCostFnwrtWhhGateGate[ele1] = (self.beta2*self.vt_gradientCostFnwrtWhhGateGate[ele1]) + ((1-self.beta2)*gradientCostFnwrtWhhGateGateMagSq)
+
+
+
+
+
+
 
     def update_weights_lstm(self):
 
@@ -814,12 +996,61 @@ class LSTM():
             self.WhhOutputGate[ele1] -= self.mlffnn.stepsize*self.gradientCostFnwrtWhhOutputGate[ele1]
             self.WhhGateGate[ele1] -= self.mlffnn.stepsize*self.gradientCostFnwrtWhhGateGate[ele1]
 
+        # if self.batch_step == 0:
+        #     print('\n Epoch {0}, min val gradWxhForgetGate = {1:.3f}, max val gradWxhForgetGate = {2:.3f}'.format(self.epochNum, np.amin(self.gradientCostFnwrtWxhForgetGate[0]), np.amax(self.gradientCostFnwrtWxhForgetGate[0])))
 
         """ Updates the parameters of the DNN like weights, BN parameters using gradient descent"""
         self.mlffnn.update_weights(self.gradientCostFnwrtDNNWeights, self.gradientCostFnwrtDNNBNGammaScaling,\
                                    self.gradientCostFnwrtDNNBNBetaShift)
 
 
+
+    def update_weights_lstm_adam(self):
+        eps = 1e-8
+        mtScaling = (1 - self.beta1**(self.batch_step+1))
+        vtScaling = (1 - self.beta2**(self.batch_step+1))
+        for ele1 in range(self.numLSTMLayers):
+
+            mtHat_gradientCostFnwrtWxhInputGate = self.mt_gradientCostFnwrtWxhInputGate[ele1] / mtScaling
+            vtHat_gradientCostFnwrtWxhInputGate = self.vt_gradientCostFnwrtWxhInputGate[ele1] / vtScaling
+            self.WxhInputGate[ele1] -= ((self.mlffnn.stepsize*mtHat_gradientCostFnwrtWxhInputGate)/(np.sqrt(vtHat_gradientCostFnwrtWxhInputGate) + eps))
+
+            mtHat_gradientCostFnwrtWxhForgetGate = self.mt_gradientCostFnwrtWxhForgetGate[ele1] / mtScaling
+            vtHat_gradientCostFnwrtWxhForgetGate = self.vt_gradientCostFnwrtWxhForgetGate[ele1] / vtScaling
+            self.WxhForgetGate[ele1] -= ((self.mlffnn.stepsize*mtHat_gradientCostFnwrtWxhForgetGate)/(np.sqrt(vtHat_gradientCostFnwrtWxhForgetGate) + eps))
+
+            mtHat_gradientCostFnwrtWxhOutputGate = self.mt_gradientCostFnwrtWxhOutputGate[ele1] / mtScaling
+            vtHat_gradientCostFnwrtWxhOutputGate = self.vt_gradientCostFnwrtWxhOutputGate[ele1] / vtScaling
+            self.WxhOutputGate[ele1] -= ((self.mlffnn.stepsize*mtHat_gradientCostFnwrtWxhOutputGate)/(np.sqrt(vtHat_gradientCostFnwrtWxhOutputGate) + eps))
+
+            mtHat_gradientCostFnwrtWxhGateGate = self.mt_gradientCostFnwrtWxhGateGate[ele1] / mtScaling
+            vtHat_gradientCostFnwrtWxhGateGate = self.vt_gradientCostFnwrtWxhGateGate[ele1] / vtScaling
+            self.WxhGateGate[ele1] -= ((self.mlffnn.stepsize*mtHat_gradientCostFnwrtWxhGateGate)/(np.sqrt(vtHat_gradientCostFnwrtWxhGateGate) + eps))
+
+
+
+            mtHat_gradientCostFnwrtWhhInputGate = self.mt_gradientCostFnwrtWhhInputGate[ele1] / mtScaling
+            vtHat_gradientCostFnwrtWhhInputGate = self.vt_gradientCostFnwrtWhhInputGate[ele1] / vtScaling
+            self.WhhInputGate[ele1] -= ((self.mlffnn.stepsize*mtHat_gradientCostFnwrtWhhInputGate)/(np.sqrt(vtHat_gradientCostFnwrtWhhInputGate) + eps))
+
+            mtHat_gradientCostFnwrtWhhForgetGate = self.mt_gradientCostFnwrtWhhForgetGate[ele1] / mtScaling
+            vtHat_gradientCostFnwrtWhhForgetGate = self.vt_gradientCostFnwrtWhhForgetGate[ele1] / vtScaling
+            self.WhhForgetGate[ele1] -= ((self.mlffnn.stepsize*mtHat_gradientCostFnwrtWhhForgetGate)/(np.sqrt(vtHat_gradientCostFnwrtWhhForgetGate) + eps))
+
+            mtHat_gradientCostFnwrtWhhOutputGate = self.mt_gradientCostFnwrtWhhOutputGate[ele1] / mtScaling
+            vtHat_gradientCostFnwrtWhhOutputGate = self.vt_gradientCostFnwrtWhhOutputGate[ele1] / vtScaling
+            self.WhhOutputGate[ele1] -= ((self.mlffnn.stepsize*mtHat_gradientCostFnwrtWhhOutputGate)/(np.sqrt(vtHat_gradientCostFnwrtWhhOutputGate) + eps))
+
+            mtHat_gradientCostFnwrtWhhGateGate = self.mt_gradientCostFnwrtWhhGateGate[ele1] / mtScaling
+            vtHat_gradientCostFnwrtWhhGateGate = self.vt_gradientCostFnwrtWhhGateGate[ele1] / vtScaling
+            self.WhhGateGate[ele1] -= ((self.mlffnn.stepsize*mtHat_gradientCostFnwrtWhhGateGate)/(np.sqrt(vtHat_gradientCostFnwrtWhhGateGate) + eps))
+
+        # if self.batch_step == 0:
+        #     print('\n Epoch {0}, WxhForgetGate Norm = {1:.3f}'.format(self.epochNum, np.sqrt(np.sum((self.WxhForgetGate[0])**2))))
+
+        """ Updates the parameters of the DNN like weights, BN parameters using gradient descent"""
+        self.mlffnn.update_weights(self.gradientCostFnwrtDNNWeights, self.gradientCostFnwrtDNNBNGammaScaling,\
+                                   self.gradientCostFnwrtDNNBNBetaShift)
 
 
 
@@ -853,7 +1084,7 @@ class LSTM():
 
         """ Update weights"""
         t9 = time.time()
-        self.update_weights_lstm()
+        self.update_weights_lstm_adam() # self.update_weights_lstm()
         t10 = time.time()
         # print('Time taken for Weight update = {0:.2f} s'.format(t10-t9))
 
@@ -866,6 +1097,7 @@ class LSTM():
         self.trainingLossArray = []
         self.validationLossArray = []
         for ele1 in np.arange(self.mlffnn.epochs):
+            self.epochNum = ele1
             timeEpochStart = time.time()
 
             self.mini_batch_gradient_descent_lstm()
@@ -940,17 +1172,17 @@ class LSTM():
         """ For stateful RNN, we may not need to shuffle the data while training, I think. Will verify this!"""
         hiddenState = [np.zeros((self.hiddenShape[ele], self.mlffnn.batchsize), dtype=np.float32) for ele in range(self.numLSTMLayers)]
         cellState = [np.zeros((self.hiddenShape[ele], self.mlffnn.batchsize), dtype=np.float32) for ele in range(self.numLSTMLayers)]
-        for batch_step in range(self.params["n_train_batches"]):
+        for self.batch_step in range(self.params["n_train_batches"]):
             trainDataSample, trainDataLabel = get_batch(
                 self.params["train_data_segments"],
                 self.params["train_label_segments"],
-                batch_step,
+                self.batch_step,
                 self.params["seq_len"],
                 self.params["vocab_size"],
             )
-            if (batch_step == randBatchInd):
-                self.hiddenStateForPredict = [h[:, 0] for h in hiddenState] # Sample the previous hidden state for 1 example since prediction works with 1 sample at a time
-                self.cellStateForPredict = [c[:, 0] for c in cellState] # Sample the previous cell state for 1 example since prediction works with 1 sample at a time
+            if (self.batch_step == randBatchInd):
+                self.hiddenStateForPredict = [h.squeeze() for h in hiddenState] # Sample the previous hidden state for 1 example since prediction works with 1 sample at a time
+                self.cellStateForPredict = [c.squeeze() for c in cellState] # Sample the previous cell state for 1 example since prediction works with 1 sample at a time
                 self.startIdx = np.argmax(trainDataSample[0,0,:]) # Store the starting character idx for the next sequence starting
             t1 = time.time()
             trainDataSample = np.transpose(trainDataSample,(1,2,0))
