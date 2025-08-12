@@ -203,6 +203,7 @@ class MLFFNeuralNetwork():
         self.gradientCostFnwrtWeights = []
         self.gradientCostFnwrtGammaScaling = []
         self.gradientCostFnwrtBetaShift = []
+
         for ele in range(self.numLayers-1):
             """Weight matrix from layer l to layer l+1 """
             numNodesLayerL = self.networkArchitecture[ele][0]
@@ -473,27 +474,30 @@ class MLFFNeuralNetwork():
         """ Backward pass"""
         self.backwardpass(trainDataLabel)
 
+        """ Compute gradients"""
+        self.compute_gradients()
+
         """ Update weights"""
-        self.compute_gradients_and_update_weights()
+        self.update_weights()
 
 
-    def compute_gradients_and_update_weights(self):
-        # Errors/delta obtained for all the layers from 2 to L
-        # Compute gradient wrt Wl_ij
-        # dJ/dWl_ij = deltal+1_j * yi_l
-        # gradient # dJ/dwij for all i,j
-        count = -1
-        for ele4 in range(self.numLayers-1):
-            batchSize = self.errorEachLayer[count].shape[1]
-            gradientCostFnwrtWeights = (self.errorEachLayer[count] @ self.outputEachlayer[ele4].T)/batchSize # Division becuase we want to get the mean of the gradients across all data points
-            self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights # Gradient descent step
-            count -= 1
-            ele5 = ele4 + 1 # because BN params start from layer 1, which is weight layer 0+1
-            if (self.networkArchitecture[ele5][2] == 1): # check if BN is enabled
-                gradientCostFnwrtGammaScaling = np.mean(self.errorEachLayer[self.numLayers-1-ele5] * self.ItaNormalized[ele5-1], axis=1) # delta^l * ita^^l
-                gradientCostFnwrtBetaShift = np.mean(self.errorEachLayer[self.numLayers-1-ele5], axis=1) # delta^l is arranged in reverse order
-                self.gammaList[ele5] = self.gammaList[ele5] - self.stepsize*gradientCostFnwrtGammaScaling
-                self.betaList[ele5] = self.betaList[ele5] - self.stepsize*gradientCostFnwrtBetaShift
+    # def compute_gradients_and_update_weights(self):
+    #     # Errors/delta obtained for all the layers from 2 to L
+    #     # Compute gradient wrt Wl_ij
+    #     # dJ/dWl_ij = deltal+1_j * yi_l
+    #     # gradient # dJ/dwij for all i,j
+    #     count = -1
+    #     for ele4 in range(self.numLayers-1):
+    #         batchSize = self.errorEachLayer[count].shape[1]
+    #         gradientCostFnwrtWeights = (self.errorEachLayer[count] @ self.outputEachlayer[ele4].T)/batchSize # Division becuase we want to get the mean of the gradients across all data points
+    #         self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights # Gradient descent step
+    #         count -= 1
+    #         ele5 = ele4 + 1 # because BN params start from layer 1, which is weight layer 0+1
+    #         if (self.networkArchitecture[ele5][2] == 1): # check if BN is enabled
+    #             gradientCostFnwrtGammaScaling = np.mean(self.errorEachLayer[self.numLayers-1-ele5] * self.ItaNormalized[ele5-1], axis=1) # delta^l * ita^^l
+    #             gradientCostFnwrtBetaShift = np.mean(self.errorEachLayer[self.numLayers-1-ele5], axis=1) # delta^l is arranged in reverse order
+    #             self.gammaList[ele5] = self.gammaList[ele5] - self.stepsize*gradientCostFnwrtGammaScaling
+    #             self.betaList[ele5] = self.betaList[ele5] - self.stepsize*gradientCostFnwrtBetaShift
 
 
 
@@ -501,8 +505,8 @@ class MLFFNeuralNetwork():
         """ This function computes the gradients of the cost function wrt the weights and BN scalings
         of each layer. This function has been written to cater to LSTMs/RNNs, where we need to find
         the gradients at each time step and then sum the gradients across all time steps.
-        This function is not used by MLFFNN per se! This is the same function as compute_gradients_and_update_weights but without updating
-        the weights but only computing gradients.
+        This is the same function as compute_gradients_and_update_weights but without updating
+        the weights but only computing gradients. nOw this function is used by MLFFNN as well
         """
 
         # Errors/delta obtained for all the layers from 2 to L
@@ -522,9 +526,26 @@ class MLFFNeuralNetwork():
 
 
 
-    def update_weights(self,gradientCostFnwrtWeights, gradientCostFnwrtGammaScaling, gradientCostFnwrtBetaShift):
+    def update_weights(self,gradientCostFnwrtWeights = None, \
+                       gradientCostFnwrtGammaScaling = None, \
+                           gradientCostFnwrtBetaShift = None):
         """ This function only updates the weights and BN parameters using the gradients computed and uses
-        gradient descent. This function too has been written to cater to LSTM and not used by DNN/CNN"""
+        gradient descent. This function too has been written to cater to LSTM and also now is used by DNN/CNN
+
+        Parameters:
+        gradientCostFnwrtWeights      (list): Gradients w.r.t. weights
+        gradientCostFnwrtGammaScaling (list): Gradients w.r.t. BN gamma parameters
+        gradientCostFnwrtBetaShift    (list): Gradients w.r.t. BN beta parameters
+        """
+
+        # If no arguments are given, use stored default gradients
+        if gradientCostFnwrtWeights is None:
+            gradientCostFnwrtWeights = self.gradientCostFnwrtWeights
+        if gradientCostFnwrtGammaScaling is None:
+            gradientCostFnwrtGammaScaling = self.gradientCostFnwrtGammaScaling
+        if gradientCostFnwrtBetaShift is None:
+            gradientCostFnwrtBetaShift = self.gradientCostFnwrtBetaShift
+
 
         for ele4 in range(self.numLayers-1):
             self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights[ele4] # Gradient descent step
@@ -1182,7 +1203,8 @@ class ConvolutionalNeuralNetwork():
 
             count -= 1
 
-        self.mlffnn.compute_gradients_and_update_weights()
+        self.mlffnn.compute_gradients()
+        self.mlffnn.update_weights()
         # print('gradientCostFnwrtKernelWeightsAllDataPoints', gradientCostFnwrtKernelWeightsAllDataPoints[10,1,2,25])
         # print('kernel weight [2]', self.kernelWeights[2][10,1,2,25])
 
