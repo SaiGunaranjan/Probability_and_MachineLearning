@@ -207,11 +207,6 @@ class MLFFNeuralNetwork():
             """Weight matrix from layer l to layer l+1 """
             numNodesLayerL = self.networkArchitecture[ele][0]
             numNodesLayerLplus1 = self.networkArchitecture[ele+1][0]
-            """ Initialize the weights matrix to 0s. Other initializations like picking from a normal distribution are also possible"""
-            # Initialization of weights with 0s doesnt seem to be convering for the stochastic gradient descent method!
-            # weightMatrix = np.zeros((numNodesLayerLplus1,numNodesLayerL+1),dtype=np.float32) # +1 is for the bias term
-            """ Initialize the weights matrix to random uniformly drawn values from 0 to 1"""
-            # weightMatrix = np.random.rand(numNodesLayerLplus1,numNodesLayerL+1) # +1 is for the bias term
 
             # Batch Normalization (BN) not defined for input and output layers
             if (self.networkArchitecture[ele][2] == 1): # If BN is enabled for a hidden layer
@@ -227,10 +222,12 @@ class MLFFNeuralNetwork():
                 gradientCostFnwrtBetaShift = np.zeros((numNodesLayerL,))
 
             else:
-                """ Weight initialization using He method"""
+                """ Weight initialization based on Activation function"""
                 fan_in = numNodesLayerL
-                scalingFactorHeInit = (np.sqrt(2/fan_in)) # This is the scaling for ReLU activation functions in the DNN
-                weightMatrix = np.random.randn(numNodesLayerLplus1,numNodesLayerL+1) * scalingFactorHeInit # +1 is for the bias term
+                fan_out = numNodesLayerLplus1
+                activationFn = self.networkArchitecture[ele+1][1]
+                weightScaling = self.weight_init_scaling(activationFn,fan_in,fan_out)
+                weightMatrix = np.random.randn(numNodesLayerLplus1,numNodesLayerL+1) * weightScaling # +1 is for the bias term
                 gammaScaling = np.empty([0])
                 betaShift = np.empty([0])
 
@@ -255,6 +252,24 @@ class MLFFNeuralNetwork():
 
 
         self.epsillon = 1e-8 # To take care of division by a 0 in the denominator
+
+
+
+    def weight_init_scaling(self,activationFn,fanIn,fanOut):
+
+        if (activationFn == 'sigmoid'):
+            weightScaling = 1/np.sqrt(fanIn) # LeCun
+        elif (activationFn == 'tanh'): # Xavier/Glorot
+            weightScaling = np.sqrt(2/(fanIn + fanOut))
+        elif (activationFn == 'ReLU'):
+            weightScaling = np.sqrt(2/fanIn) # He
+        elif (activationFn == 'softmax'): # Final output layer
+            weightScaling = np.sqrt(2/(fanIn + fanOut)) # Xavier/Glorot. Actually for softmax, it is not an activation per se but we can use Xavier
+        else:
+            weightScaling = 1
+
+        return weightScaling
+
 
 
 
