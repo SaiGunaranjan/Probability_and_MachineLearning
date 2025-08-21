@@ -156,7 +156,7 @@ def prepare_data(file_path, n_segments=64, seq_len=100, split_ratio=0.8,
 
 
 if __name__ == "__main__":
-    params = prepare_data("harry_potter_small.txt", n_segments=32, seq_len=100, level='word')
+    params = prepare_data("harry_potter_small.txt", n_segments=32, seq_len=30, level='word') # seq_len=100, level='char'
 
     print(f"Vocabulary size: {params['vocab_size']}")
     print(f"Train batches per epoch: {params['n_train_batches']}")
