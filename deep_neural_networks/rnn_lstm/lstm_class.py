@@ -372,9 +372,9 @@ class LSTM():
 
 
 
-    def preprocess_textfile(self,textfile):
+    def preprocess_textfile(self, textfile, **kwargs):
 
-        self.params = prepare_data(textfile, n_segments = self.mlffnn.batchsize, seq_len = self.numTimeSteps)
+        self.params = prepare_data(textfile, n_segments=self.mlffnn.batchsize, seq_len=self.numTimeSteps, **kwargs)
 
 
 
@@ -1277,12 +1277,12 @@ class LSTM():
     def predict(self, predSeqLen):
 
 
-        textString = ''
+        tokens_out = []
         hiddenStateTminus1LayerLplus1 = [arr.copy() for arr in self.hiddenStateForPredict]
         cellStateTminus1 = [arr.copy() for arr in self.cellStateForPredict]
         idx = self.startIdx
-        startingchar = self.params['idx2char'][idx]
-        textString += startingchar
+        starting_token = (self.params.get('idx2token') or self.params['idx2char'])[idx]
+        tokens_out.append(starting_token)
         inputVector = np.zeros((self.inputShape+1,)) # +1 for the bias
         inputVector[0] = 1 # 1st element is for the bias term
         inputVector[idx+1] = 1 # To account for the element 1 added at the beginning
@@ -1321,15 +1321,19 @@ class LSTM():
             outputPMF = (self.mlffnn.predictedOutput).flatten()
 
             # Sample from this distribution
-            values = np.arange(self.outputShape)
-            chrIndex = np.random.choice(values, p=outputPMF)
-            char = self.params['idx2char'][chrIndex]
-            textString += char
+            chrIndex = self.mlffnn.top_p_sampling(outputPMF,p=0.8)
+            token = (self.params.get('idx2token') or self.params['idx2char'])[chrIndex]
+            tokens_out.append(token)
+
             inputVector = np.zeros((self.inputShape+1,))
             inputVector[0] = 1 # 1st element is for the bias term
             inputVector[chrIndex+1] = 1 # To account for the element 1 added at the beginning
+        if self.params.get('level','char') == 'word':
+            textString = ' '.join(tokens_out)
+        else:
+            textString = ''.join(tokens_out)
+        print('Predicted text:\n', textString)
 
-        print('Predicted text:\n',textString)
 
 
 

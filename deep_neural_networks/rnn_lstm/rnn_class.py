@@ -102,20 +102,20 @@ from textfile_preprocessing import prepare_data, get_batch
 
 
 
+
 class RecurrentNeuralNetwork():
 
-    def __init__(self, inputShape, numRNNLayers, outputShape, numTimeSteps):
+    def __init__(self, inputShape, hiddenStateVecLengthEachRNNLayer, outputShape, numTimeSteps):
 
         # We will assume output shape to be same as input shape, since both input and output are characters or words
         self.inputShape = inputShape
-        self.numRNNLayers = numRNNLayers
+        self.numRNNLayers = len(hiddenStateVecLengthEachRNNLayer)
         self.outputShape = outputShape
         self.numTimeSteps = numTimeSteps
         self.numTotalLayers = 1 + self.numRNNLayers + 1 # (1 for input, 1 for output, numRNNLayers)
 
-        """ Weight initialization"""
-        """ Xavier method of weight initialization for tanh activation for vanilla RNN"""
-        self.hiddenShape = np.random.randint(self.inputShape, self.inputShape+50, size=self.numRNNLayers+1) # Length of hidden state vector can be different for each layer
+        self.hiddenShape = np.zeros((self.numRNNLayers+1),dtype=np.int32) # Length of hidden state vector can be different for each layer
+        self.hiddenShape[0:self.numRNNLayers] = np.array(hiddenStateVecLengthEachRNNLayer)
         self.hiddenShape[-1] = self.outputShape # Final output layer hidden state vector is a 0 vector of shape vocab size
         self.inputShapeEachLayer = np.zeros((self.numRNNLayers+2,),dtype=np.int32) # Size of input to each layer (rnn layer and final output layer)
         self.inputShapeEachLayer[0] = self.inputShape
@@ -123,6 +123,8 @@ class RecurrentNeuralNetwork():
         fanInWxh = self.inputShape+1 # inputShape+1 absorbs the bias term to the Wxh matrix
         self.Wxh = []
         self.Whh = []
+        """ Weight initialization"""
+        """ Xavier method of weight initialization for tanh activation for vanilla RNN"""
         for ele in range(self.numRNNLayers+1):
             fanInWhh = fanOutWhh = self.hiddenShape[ele]
             fanOutWxh = fanOutWhh
@@ -152,9 +154,9 @@ class RecurrentNeuralNetwork():
         self.batchsize = batchsize # Batch size is typically a power of 2
 
 
-    def preprocess_textfile(self,textfile):
+    def preprocess_textfile(self,textfile, **kwargs):
 
-        self.params = prepare_data(textfile, n_segments = self.batchsize, seq_len = self.numTimeSteps)
+        self.params = prepare_data(textfile, n_segments = self.batchsize, seq_len = self.numTimeSteps, **kwargs)
 
 
 
@@ -563,11 +565,11 @@ class RecurrentNeuralNetwork():
     def predict(self, predSeqLen):
 
 
-        textString = ''
+        tokens_out = []
         hiddenStateTminus1LayerLplus1 = [arr.copy() for arr in self.hiddenStateForPredict]
         idx = self.startIdx
-        startingchar = self.params['idx2char'][idx]
-        textString += startingchar
+        starting_token = (self.params.get('idx2token') or self.params['idx2char'])[idx]
+        tokens_out.append(starting_token)
         inputVector = np.zeros((self.inputShape+1,)) # +1 for the bias
         inputVector[0] = 1 # 1st element is for the bias term
         inputVector[idx+1] = 1 # To account for the element 1 added at the beginning
@@ -596,17 +598,46 @@ class RecurrentNeuralNetwork():
             outputPMF = inputVector.flatten()
 
             # Sample from this distribution
-            values = np.arange(self.outputShape)
-            chrIndex = np.random.choice(values, p=outputPMF)
-            char = self.params['idx2char'][chrIndex]
-            textString += char
+            chrIndex = self.top_p_sampling(outputPMF,p=0.8)
+            token = (self.params.get('idx2token') or self.params['idx2char'])[chrIndex]
+            tokens_out.append(token)
             inputVector = np.zeros((self.inputShape+1,))
             inputVector[0] = 1 # 1st element is for the bias term
             inputVector[chrIndex+1] = 1 # To account for the element 1 added at the beginning
 
+            if self.params.get('level','char') == 'word':
+                textString = ' '.join(tokens_out)
+            else:
+                textString = ''.join(tokens_out)
+
         print('Predicted text:\n',textString)
 
 
+
+    def top_p_sampling(self, pmf, p=0.9):
+        """
+        Given a pmf (list or numpy array of probabilities summing to 1),
+        perform top-p (nucleus) sampling.
+
+        Returns:
+            idx: selected index according to top-p procedure.
+        """
+        # Sort probabilities and get sorted indices
+        sorted_indices = np.argsort(pmf)[::-1]
+        sorted_pmf = pmf[sorted_indices]
+
+        # Compute cumulative sum to get nucleus
+        cumulative_probs = np.cumsum(sorted_pmf)
+        cutoff = np.searchsorted(cumulative_probs, p) + 1
+
+        # Form top-p subset
+        top_p_indices = sorted_indices[:cutoff]
+        top_p_probs = pmf[top_p_indices]
+        top_p_probs /= top_p_probs.sum()  # Renormalize
+
+        # Sample from top-p subset
+        chosen = np.random.choice(top_p_indices, p=top_p_probs)
+        return chosen
 
 
 

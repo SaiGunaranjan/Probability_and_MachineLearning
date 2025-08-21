@@ -713,6 +713,32 @@ class MLFFNeuralNetwork():
         plt.show()
 
 
+
+    def top_p_sampling(self, pmf, p=0.9):
+        """
+        Given a pmf (list or numpy array of probabilities summing to 1),
+        perform top-p (nucleus) sampling.
+
+        Returns:
+            idx: selected index according to top-p procedure.
+        """
+        # Sort probabilities and get sorted indices
+        sorted_indices = np.argsort(pmf)[::-1]
+        sorted_pmf = pmf[sorted_indices]
+
+        # Compute cumulative sum to get nucleus
+        cumulative_probs = np.cumsum(sorted_pmf)
+        cutoff = np.searchsorted(cumulative_probs, p) + 1
+
+        # Form top-p subset
+        top_p_indices = sorted_indices[:cutoff]
+        top_p_probs = pmf[top_p_indices]
+        top_p_probs /= top_p_probs.sum()  # Renormalize
+
+        # Sample from top-p subset
+        chosen = np.random.choice(top_p_indices, p=top_p_probs)
+        return chosen
+
 """ Convolutional Neural Networks
 
 Need to go from ANN to CNN?
@@ -817,7 +843,7 @@ This means the gradient also becomes zero, vanishing gradients(Note: Gradient is
 Since gradients were zero, the weights were also not updating and hence no change in loss. I have fixed this by using the He method of weight initialization!
 23. Loss fn isn't changing means either the update rate is too small or that the gradients are too large or too small. For the fashion MNIST dataset, it was
 vanishing gradients. [Done] Fixed by He weight initialization!
-24. Implement RMSProp, ADAM, Adagrad methods of Gradient descent optimization algorithms
+24. Implement RMSProp, ADAM, Adagrad methods of Gradient descent optimization algorithms[Done for LSTMs]
 25. Xavier and He initialization methods. Video link: https://www.youtube.com/watch?v=1pgahpCZeF0&list=PLyqSpQzTE6M9gCgajvQbc68Hk_JKGBAYT&index=73
 26. Dropouts for regularization
 27. Batch normalization [Done]
