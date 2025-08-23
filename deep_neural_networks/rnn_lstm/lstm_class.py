@@ -294,7 +294,7 @@ class LSTM():
 
 
             WxhForgetGate = np.random.randn(fanOutWxh, fanInWxh) * np.sqrt(1/(fanInWxh)) # self.inputShape+1 absorbs the bias term to the Wxh matrix, self.numLSTMLayers+1 is for the final output layer
-            # WxhForgetGate[:,0] += -1 # We are making the bias for the forget get large to begin with. This way, the pre-activation to the forget gate becomes large and hence the forget gate becomes close to 1. So it means, initially, the forget gate passes the entire info of the previous cell state. This is a common trcik used.
+            # WxhForgetGate[:,0] += 1 # We are making the bias for the forget get large to begin with. This way, the pre-activation to the forget gate becomes large and hence the forget gate becomes close to 1. So it means, initially, the forget gate passes the entire info of the previous cell state. This is a common trcik used.
             gradientCostFnwrtWxhForgetGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32)
             mt_gradientCostFnwrtWxhForgetGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32) # Running mean/EMA of the gradients across time
             vt_gradientCostFnwrtWxhForgetGate = np.zeros((fanOutWxh, fanInWxh),dtype=np.float32) # Running mean/EMA of the magnitude square of gradients across time
@@ -402,11 +402,11 @@ class LSTM():
         self.outputGate = []
         self.gateGate = []
         for ele1 in range(self.numLSTMLayers):
-            cell = np.zeros((self.numTimeSteps, self.hiddenShape[ele1], self.mlffnn.batchsize),dtype=np.float32)
-            self.inputGate.append(cell)
-            self.forgetGate.append(cell)
-            self.outputGate.append(cell)
-            self.gateGate.append(cell)
+            shape = (self.numTimeSteps, self.hiddenShape[ele1], self.mlffnn.batchsize)
+            self.inputGate.append(np.zeros(shape, dtype=np.float32))
+            self.forgetGate.append(np.zeros(shape, dtype=np.float32))
+            self.outputGate.append(np.zeros(shape, dtype=np.float32))
+            self.gateGate.append(np.zeros(shape, dtype=np.float32))
 
 
 
@@ -541,11 +541,11 @@ class LSTM():
 
 
 
-        hiddenState = [row[-1,:,:] for row in self.hiddenStateMatrix] # hidden state of each layer and last time step is stored and used as input hidden state of next charcter
-        cellState = [row[-1,:,:] for row in self.cellStateMatrix] # cell state of each layer and last time step is stored and used as input hidden state of next charcter
+        hiddenState = [row[-1,:,:].copy() for row in self.hiddenStateMatrix] # hidden state of each layer and last time step is stored and used as input hidden state of next charcter
+        cellState = [row[-1,:,:].copy() for row in self.cellStateMatrix] # cell state of each layer and last time step is stored and used as input hidden state of next charcter
 
-        self.cellStateCurrent = [row[1::,:,:] for row in self.cellStateMatrix]
-        self.cellStatePrevious = [row[0:-1,:,:] for row in self.cellStateMatrix]
+        self.cellStateCurrent = [row[1::,:,:].copy() for row in self.cellStateMatrix]
+        self.cellStatePrevious = [row[0:-1,:,:].copy() for row in self.cellStateMatrix]
 
         return hiddenState, cellState
 
@@ -885,8 +885,8 @@ class LSTM():
 
         self.globalNorm = np.sqrt(self.globalNorm) # Norm is sqrt of the sum of squares
 
-        # if self.batch_step == 0:
-        #     print('\n Epoch {0}, Global Norm = {1:.3f}'.format(self.epochNum, self.globalNorm))
+        if self.batch_step == 0:
+            print('\n Epoch {0}, Global Norm = {1:.3f}, Max Norm = {2:.2f}'.format(self.epochNum, self.globalNorm, self.maxNorm))
 
         """ Apply global norm clipping"""
         self.global_norm_clipping()
@@ -1140,7 +1140,7 @@ class LSTM():
             print('Time taken for epoch {0}/{1} = {2:.2f} min'.format(ele1+1, self.mlffnn.epochs, timeEachEpoch))
 
             predSeqLen = 200
-            self.predict(predSeqLen) # Generate a character sequence of length = predSeqLen, at the end of each epoch
+            # self.predict(predSeqLen) # Generate a character sequence of length = predSeqLen, at the end of each epoch
 
 
 
