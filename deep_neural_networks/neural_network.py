@@ -154,6 +154,9 @@ BN set to 0!
 
 Next I will implement the Batch Normalization for CNN.[Done]
 
+Good blog for Batch normalization:
+    https://towardsdatascience.com/batch-norm-explained-visually-how-it-works-and-why-neural-networks-need-it-b18919692739/
+
 27/06/2025
 I have tested the iris dataset with a simple ANN and batch normalization.
 With the batch normalization, the training and validation accuracy have improved and it is hitting
@@ -164,6 +167,11 @@ Also, CNN has some bugs in updating the kernels weights[I believe I have now fix
 
 22/07/2025
 1. Keep Batch normalization into a separate function instead of corrupting the forward pass
+
+12/08/2025
+1. Weight initialization based on activation functions used in that layer
+2. Split the compute_gradients_update_weights function into individual functions which compute gradients separately
+and other function which does weight update separately.
 
 
 
@@ -181,6 +189,7 @@ import time as time
 # from cupyx.scipy.signal import convolve2d
 # cupyx.scipy.signal.correlate2d()
 # import sys
+# np.seterr(over='raise')
 
 class MLFFNeuralNetwork():
 
@@ -195,15 +204,16 @@ class MLFFNeuralNetwork():
         self.runMeanList = []
         self.runVarList = []
         self.numParamsEachDenseLayer = []
+        # Below list is used to store the gradients for each time step when using LSTMs
+        self.gradientCostFnwrtWeights = []
+        self.gradientCostFnwrtGammaScaling = []
+        self.gradientCostFnwrtBetaShift = []
+
+
         for ele in range(self.numLayers-1):
             """Weight matrix from layer l to layer l+1 """
             numNodesLayerL = self.networkArchitecture[ele][0]
             numNodesLayerLplus1 = self.networkArchitecture[ele+1][0]
-            """ Initialize the weights matrix to 0s. Other initializations like picking from a normal distribution are also possible"""
-            # Initialization of weights with 0s doesnt seem to be convering for the stochastic gradient descent method!
-            # weightMatrix = np.zeros((numNodesLayerLplus1,numNodesLayerL+1),dtype=np.float32) # +1 is for the bias term
-            """ Initialize the weights matrix to random uniformly drawn values from 0 to 1"""
-            # weightMatrix = np.random.rand(numNodesLayerLplus1,numNodesLayerL+1) # +1 is for the bias term
 
             # Batch Normalization (BN) not defined for input and output layers
             if (self.networkArchitecture[ele][2] == 1): # If BN is enabled for a hidden layer
@@ -214,17 +224,27 @@ class MLFFNeuralNetwork():
                 """ Below 2 arrays runningMean and runningVar are not parameters for NN. So no gradients required for these"""
                 runningMean = np.zeros((numNodesLayerL,))
                 runningVar = np.ones((numNodesLayerL,))
+
+                gradientCostFnwrtGammaScaling = np.zeros((numNodesLayerL,))
+                gradientCostFnwrtBetaShift = np.zeros((numNodesLayerL,))
+
             else:
-                """ Weight initialization using He method"""
+                """ Weight initialization based on Activation function"""
                 fan_in = numNodesLayerL
-                scalingFactorHeInit = (np.sqrt(2/fan_in)) # This is the scaling for ReLU activation functions in the DNN
-                weightMatrix = np.random.randn(numNodesLayerLplus1,numNodesLayerL+1) * scalingFactorHeInit # +1 is for the bias term
+                fan_out = numNodesLayerLplus1
+                activationFn = self.networkArchitecture[ele+1][1]
+                weightScaling = self.weight_init_scaling(activationFn,fan_in,fan_out)
+                weightMatrix = np.random.randn(numNodesLayerLplus1,numNodesLayerL+1) * weightScaling # +1 is for the bias term
                 gammaScaling = np.empty([0])
                 betaShift = np.empty([0])
 
                 runningMean = np.empty([0])
                 runningVar = np.empty([0])
 
+                gradientCostFnwrtGammaScaling = np.empty([0])
+                gradientCostFnwrtBetaShift = np.empty([0])
+
+            gradientCostFnwrtWeights = np.zeros((numNodesLayerLplus1,numNodesLayerL+1))
 
             numParamsEachDenseLayer = weightMatrix.size + gammaScaling.size + betaShift.size
             self.numParamsEachDenseLayer.append(numParamsEachDenseLayer)
@@ -233,8 +253,30 @@ class MLFFNeuralNetwork():
             self.betaList.append(betaShift)
             self.runMeanList.append(runningMean)
             self.runVarList.append(runningVar)
+            self.gradientCostFnwrtWeights.append(gradientCostFnwrtWeights)
+            self.gradientCostFnwrtGammaScaling.append(gradientCostFnwrtGammaScaling)
+            self.gradientCostFnwrtBetaShift.append(gradientCostFnwrtBetaShift)
+
 
         self.epsillon = 1e-8 # To take care of division by a 0 in the denominator
+
+
+
+    def weight_init_scaling(self,activationFn,fanIn,fanOut):
+
+        if (activationFn == 'sigmoid'):
+            weightScaling = 1/np.sqrt(fanIn) # LeCun
+        elif (activationFn == 'tanh'): # Xavier/Glorot
+            weightScaling = np.sqrt(2/(fanIn + fanOut))
+        elif (activationFn == 'ReLU'):
+            weightScaling = np.sqrt(2/fanIn) # He
+        elif (activationFn == 'softmax'): # Final output layer
+            weightScaling = np.sqrt(2/(fanIn + fanOut)) # Xavier/Glorot. Actually for softmax, it is not an activation per se but we can use Xavier
+        else:
+            weightScaling = 1
+
+        return weightScaling
+
 
 
 
@@ -255,6 +297,12 @@ class MLFFNeuralNetwork():
 
     def tanh(self,z):
         # tanh = (np.exp(z) - np.exp(-z)) / (np.exp(z) + np.exp(-z))
+
+        # try:
+        #     ePowpz = np.exp(z)
+        # except FloatingPointError:
+        #     print("Overflow detected!")
+
         ePowpz = np.exp(z)
         ePowmz = np.exp(-z)
         return (ePowpz - ePowmz) / (ePowpz + ePowmz)
@@ -305,10 +353,10 @@ class MLFFNeuralNetwork():
     def compute_loss_function(self,trainDataLabel):
 
         if (self.costfn == 'categorical_cross_entropy'):
-            mask = self.predictedOutput !=0 # Avoid 0 values in log2 evaluation. But this is not correct. It can mask wrong classifications.
             batchSize = self.predictedOutput.shape[1]
             # cost fn = -Sum(di*log(yi))/N, where di is the actual output and yi is the predicted output, N is the batch size.
-            costFunction = (-np.sum((trainDataLabel[mask]*np.log2(self.predictedOutput[mask]))))/batchSize # Mean loss across data points
+            eps = 1e-12 # eps added inside log to cater to cases where the softmax gives close to 0 for some of the elements
+            costFunction = (-np.sum(trainDataLabel * np.log2(self.predictedOutput + eps))) / batchSize # Mean loss across data points
         elif (self.costfn == 'squared_error'):
             batchSize = self.predictedOutput.shape[1]
             # cost fn = 1/2 Sum((yi - di)**2)/N, where di is the actual output and yi is the predicted output, N is the batch size
@@ -432,11 +480,41 @@ class MLFFNeuralNetwork():
         """ Backward pass"""
         self.backwardpass(trainDataLabel)
 
+        """ Compute gradients"""
+        self.compute_gradients()
+
         """ Update weights"""
         self.update_weights()
 
 
-    def update_weights(self):
+    # def compute_gradients_and_update_weights(self):
+    #     # Errors/delta obtained for all the layers from 2 to L
+    #     # Compute gradient wrt Wl_ij
+    #     # dJ/dWl_ij = deltal+1_j * yi_l
+    #     # gradient # dJ/dwij for all i,j
+    #     count = -1
+    #     for ele4 in range(self.numLayers-1):
+    #         batchSize = self.errorEachLayer[count].shape[1]
+    #         gradientCostFnwrtWeights = (self.errorEachLayer[count] @ self.outputEachlayer[ele4].T)/batchSize # Division becuase we want to get the mean of the gradients across all data points
+    #         self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights # Gradient descent step
+    #         count -= 1
+    #         ele5 = ele4 + 1 # because BN params start from layer 1, which is weight layer 0+1
+    #         if (self.networkArchitecture[ele5][2] == 1): # check if BN is enabled
+    #             gradientCostFnwrtGammaScaling = np.mean(self.errorEachLayer[self.numLayers-1-ele5] * self.ItaNormalized[ele5-1], axis=1) # delta^l * ita^^l
+    #             gradientCostFnwrtBetaShift = np.mean(self.errorEachLayer[self.numLayers-1-ele5], axis=1) # delta^l is arranged in reverse order
+    #             self.gammaList[ele5] = self.gammaList[ele5] - self.stepsize*gradientCostFnwrtGammaScaling
+    #             self.betaList[ele5] = self.betaList[ele5] - self.stepsize*gradientCostFnwrtBetaShift
+
+
+
+    def compute_gradients(self):
+        """ This function computes the gradients of the cost function wrt the weights and BN scalings
+        of each layer. This function has been written to cater to LSTMs/RNNs, where we need to find
+        the gradients at each time step and then sum the gradients across all time steps.
+        This is the same function as compute_gradients_and_update_weights but without updating
+        the weights but only computing gradients. nOw this function is used by MLFFNN as well
+        """
+
         # Errors/delta obtained for all the layers from 2 to L
         # Compute gradient wrt Wl_ij
         # dJ/dWl_ij = deltal+1_j * yi_l
@@ -444,17 +522,44 @@ class MLFFNeuralNetwork():
         count = -1
         for ele4 in range(self.numLayers-1):
             batchSize = self.errorEachLayer[count].shape[1]
-            gradientCostFnwrtWeights = (self.errorEachLayer[count] @ self.outputEachlayer[ele4].T)/batchSize # Division becuase we want to get the mean of the gradients across all data points
-            self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights # Gradient descent step
+            self.gradientCostFnwrtWeights[ele4] = (self.errorEachLayer[count] @ self.outputEachlayer[ele4].T)/batchSize # Division becuase we want to get the mean of the gradients across all data points
+            # print('Max val of do L / do W DNN = {0:.4f}'.format(np.amax(np.abs(self.gradientCostFnwrtWeights[ele4]))))
             count -= 1
+            ele5 = ele4 + 1 # because BN params start from layer 1, which is weight layer 0+1
+            if (self.networkArchitecture[ele5][2] == 1): # check if BN is enabled
+                self.gradientCostFnwrtGammaScaling[ele5] = np.mean(self.errorEachLayer[self.numLayers-1-ele5] * self.ItaNormalized[ele5-1], axis=1) # delta^l * ita^^l
+                self.gradientCostFnwrtBetaShift[ele5] = np.mean(self.errorEachLayer[self.numLayers-1-ele5], axis=1) # delta^l is arranged in reverse order
 
-        # Can ideally optimize this loop and put it into above loop as well. I will do this later
-        for ele5 in range(1,self.numLayers): # This starts from 1 since 0th layer i.e input layer anyways has no BN
+
+
+    def update_weights(self,gradientCostFnwrtWeights = None, \
+                       gradientCostFnwrtGammaScaling = None, \
+                           gradientCostFnwrtBetaShift = None):
+        """ This function only updates the weights and BN parameters using the gradients computed and uses
+        gradient descent. This function too has been written to cater to LSTM and also now is used by DNN/CNN
+
+        Parameters:
+        gradientCostFnwrtWeights      (list): Gradients w.r.t. weights
+        gradientCostFnwrtGammaScaling (list): Gradients w.r.t. BN gamma parameters
+        gradientCostFnwrtBetaShift    (list): Gradients w.r.t. BN beta parameters
+        """
+
+        # If no arguments are given, use stored default gradients
+        if gradientCostFnwrtWeights is None:
+            gradientCostFnwrtWeights = self.gradientCostFnwrtWeights
+        if gradientCostFnwrtGammaScaling is None:
+            gradientCostFnwrtGammaScaling = self.gradientCostFnwrtGammaScaling
+        if gradientCostFnwrtBetaShift is None:
+            gradientCostFnwrtBetaShift = self.gradientCostFnwrtBetaShift
+
+
+        for ele4 in range(self.numLayers-1):
+            self.weightMatrixList[ele4] = self.weightMatrixList[ele4] - self.stepsize*gradientCostFnwrtWeights[ele4] # Gradient descent step
+            ele5 = ele4 + 1 # because BN params start from layer 1, which is weight layer 0+1
             if (self.networkArchitecture[ele5][2] == 1):
-                gradientCostFnwrtGammaScaling = np.mean(self.errorEachLayer[self.numLayers-1-ele5] * self.ItaNormalized[ele5-1], axis=1) # delta^l * ita^^l
-                gradientCostFnwrtBetaShift = np.mean(self.errorEachLayer[self.numLayers-1-ele5], axis=1) # delta^l is arranged in reverse order
-                self.gammaList[ele5] = self.gammaList[ele5] - self.stepsize*gradientCostFnwrtGammaScaling
-                self.betaList[ele5] = self.betaList[ele5] - self.stepsize*gradientCostFnwrtBetaShift
+                self.gammaList[ele5] = self.gammaList[ele5] - self.stepsize*gradientCostFnwrtGammaScaling[ele5]
+                self.betaList[ele5] = self.betaList[ele5] - self.stepsize*gradientCostFnwrtBetaShift[ele5]
+
 
 
     def train_nn(self,trainData,trainDataLabels,split = 1):
@@ -608,6 +713,32 @@ class MLFFNeuralNetwork():
         plt.show()
 
 
+
+    def top_p_sampling(self, pmf, p=0.9):
+        """
+        Given a pmf (list or numpy array of probabilities summing to 1),
+        perform top-p (nucleus) sampling.
+
+        Returns:
+            idx: selected index according to top-p procedure.
+        """
+        # Sort probabilities and get sorted indices
+        sorted_indices = np.argsort(pmf)[::-1]
+        sorted_pmf = pmf[sorted_indices]
+
+        # Compute cumulative sum to get nucleus
+        cumulative_probs = np.cumsum(sorted_pmf)
+        cutoff = np.searchsorted(cumulative_probs, p) + 1
+
+        # Form top-p subset
+        top_p_indices = sorted_indices[:cutoff]
+        top_p_probs = pmf[top_p_indices]
+        top_p_probs /= top_p_probs.sum()  # Renormalize
+
+        # Sample from top-p subset
+        chosen = np.random.choice(top_p_indices, p=top_p_probs)
+        return chosen
+
 """ Convolutional Neural Networks
 
 Need to go from ANN to CNN?
@@ -712,7 +843,7 @@ This means the gradient also becomes zero, vanishing gradients(Note: Gradient is
 Since gradients were zero, the weights were also not updating and hence no change in loss. I have fixed this by using the He method of weight initialization!
 23. Loss fn isn't changing means either the update rate is too small or that the gradients are too large or too small. For the fashion MNIST dataset, it was
 vanishing gradients. [Done] Fixed by He weight initialization!
-24. Implement RMSProp, ADAM, Adagrad methods of Gradient descent optimization algorithms
+24. Implement RMSProp, ADAM, Adagrad methods of Gradient descent optimization algorithms[Done for LSTMs]
 25. Xavier and He initialization methods. Video link: https://www.youtube.com/watch?v=1pgahpCZeF0&list=PLyqSpQzTE6M9gCgajvQbc68Hk_JKGBAYT&index=73
 26. Dropouts for regularization
 27. Batch normalization [Done]
@@ -1104,6 +1235,7 @@ class ConvolutionalNeuralNetwork():
 
             count -= 1
 
+        self.mlffnn.compute_gradients()
         self.mlffnn.update_weights()
         # print('gradientCostFnwrtKernelWeightsAllDataPoints', gradientCostFnwrtKernelWeightsAllDataPoints[10,1,2,25])
         # print('kernel weight [2]', self.kernelWeights[2][10,1,2,25])

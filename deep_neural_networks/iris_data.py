@@ -10,7 +10,8 @@ Created on Fri Aug  9 12:17:39 2024
 
     In the above blog, they were able to achieve an accuracy of 93% using keras and tensorflow.
     I was able to achieve 96% accuracy with my batch version of GD and NN functions and architecture.
-    With mini_batch version and online versions, I was getting 93.33% accuracy
+    With mini_batch version and online versions, I was getting 93.33% accuracy. But with Batch Normalization enabled,
+    the train,validation accuracy are good but the test accuracy drops to 83%. Need to check this.
 """
 
 import pandas as pd
@@ -72,7 +73,7 @@ Y_data = temp[:,4::].T
 1st element in architecture list is input, last element is output"""
 numInputNodes = X_data.shape[0]
 numOutputNodes = Y_data.shape[0]
-networkArchitecture = [(numInputNodes,'Identity',0), (128,'ReLU',1), (128, 'ReLU',1), (numOutputNodes,'softmax',0)]
+networkArchitecture = [(numInputNodes,'Identity',0), (128,'ReLU',0), (128, 'ReLU',0), (numOutputNodes,'softmax',0)]
 mlffnn = MLFFNeuralNetwork(networkArchitecture)
 """ If validation loss is not changing, try reducing the learning rate"""
 mlffnn.set_model_params(modeGradDescent = 'batch',costfn = 'categorical_cross_entropy',epochs=5000, stepsize=0.001)#stepsize=0.0001
