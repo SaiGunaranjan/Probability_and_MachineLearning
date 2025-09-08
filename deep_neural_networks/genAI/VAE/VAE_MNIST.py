@@ -6,9 +6,44 @@ Created on Sun Sep  7 12:06:34 2025
 """
 
 
+"""
+Implement VAE on MNIST dataset
+
+In this code, I have implemented a Variational Auto Encoder (VAE) on the MNSIT dataset. I have followed the
+video lectures by Pratosh for the VAE implementation. When I ran the training initially, I was obtaining
+very blurry and very similar images for all epochs. I ran the code through deepseek and found the issue to be
+due to very small loss values and hence no significant gradients for the Encoder and Decoder. The reason for the
+low loss was becuase I was computing the loss as a mean across data dimension as well.
+This makes the loss very small especially when the data dimension is very large like images.
+Ideally when computing the average loss, we should take the mean only across the batch dimensions or
+multiple instances dimension. We can take mean across the data size dimension as well but then we should scale
+the learning rate alpha also accordingly. So, for now I have fixed the low loss issue by taking mean only
+across batch/num_epsillon_instance dimesnion. With this small fix, now I'm able to generate very goood
+quality images.
+
+
+Fixes:
+    Previously, I was implementing a separate weight updates for the encoder and decoder. While implementing the
+    Encoder weight update, I was using the entire ELBO(Evidence Lower Bound) cost function which comprises both the
+    reconstruction/ negative log likelihood term and the KL divergence between q_phi (z|x) and p(z). While updating
+    the Decoder parameters, I was considering only the reconstruction term and not the KL term since the KL term
+    depends only on the Encoder parameters. But in this commit, I have clubbed both the Encoder and Decoder
+    updates into a single forward and backward path and updates for both of them together. This is because,
+    autograd (pytorch's toll for computig gradients) forms a computational graph during the forward pass
+    and hence know the paths to follow during the backward pass to compute the gradients.
+    Hence, I can just give the total loss and autograd take care of computing the gradients for both the Encoder
+    and Decoder.
+
+
+
+For the VAE network architecture on MNIST dataset, I have used the one from the original paper on VAE by
+Kingma & Welling, 2013 (original VAE paper).
+D.P. Kingma, M. Welling, "Auto-Encoding Variational Bayes"
+"""
+
 # q_phi (z|x) = N(z, mu_phi, Sigma_phi)
 # p(z) = N(0,I)
-# P_theta (x|z) = soft class labels
+
 
 import torch
 import torch.nn as nn
@@ -121,7 +156,7 @@ class Decoder(nn.Module):
 
 
 latent_space_dim = 20
-num_instances_epsillon = 1 # Number of instances of epsillon for each data point X. This is used to get the Expectation of log likelihood P_\theta(x|z)
+num_instances_epsillon = 10#30 # Number of instances of epsillon for each data point X. This is used to get the Expectation of log likelihood P_\theta(x|z)
 beta = 1 # To model beta VAE
 
 # Define the Encoder and Decoder objects
@@ -133,10 +168,10 @@ encoder = encoder.to(device)
 decoder = decoder.to(device)
 
 # Define Loss Function as BCE for the log likelihood or reconstruction term
-criterion = nn.BCELoss(reduction='sum')
+criterion = nn.BCELoss(reduction='sum') # P_theta (x|z) = soft class labels
+# criterion = nn.MSELoss(reduction='sum') # # P_theta (x|z) = N(x;mu_theta(z),I)
 
-optimizer_encoder = optim.Adam(encoder.parameters(), lr=1e-3)
-optimizer_decoder = optim.Adam(decoder.parameters(), lr=1e-3)
+optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()), lr=1e-3)
 
 
 epochs = 30#100
@@ -152,17 +187,17 @@ if __name__ == "__main__":
         decoder.train()
 
         for batch_idx, (image_data, _) in enumerate(train_loader):
-            # print('batch_idx', batch_idx)
+
             # Set gradients to 0
-            optimizer_encoder.zero_grad()
-            optimizer_decoder.zero_grad()
+            optimizer.zero_grad()
+
 
             internalBatchSize = image_data.shape[0]
 
             # Move data to device
             image_data = image_data.to(device)
 
-            # Train Encoder
+            # Train Encoder + Decoder at once
 
             # Compute forward pass on Encoder
             mu_phi, log_variance_phi = encoder(image_data)
@@ -189,68 +224,27 @@ if __name__ == "__main__":
             # Make multiple copies(num_instances_epsillon number of copies) of the input image for each example data in the batch
             image_data_expand = image_data.unsqueeze(1).expand(-1, num_instances_epsillon, -1, -1, -1)
 
-            # Compute BCE loss for the reconstruction/log likelihood term
+            # Compute loss for the reconstruction/log likelihood term. Mean should be taken only across batches and num_instances_epsilon. Not across the vector/matrix dimension!
             loss_recon_term = criterion(reconst_image,image_data_expand)/(internalBatchSize*num_instances_epsillon)
 
-            # Compute KL term
+            # Compute KL term. This is a closed form expression that can be derived!
             kl_divergence = 1/2 * (torch.sum(variance_phi,axis=1) + torch.sum(mu_phi**2,axis=1) - latent_space_dim -
                                    torch.sum(log_variance_phi,axis=1))
             kl_divergence = torch.mean(kl_divergence) # Compute mean across batch dimension
 
-            # Total Encoder loss = loss from BCE (or negative of log likelihood) + beta*KL(q_phi(z|x) || P(z))
-            total_loss_encoder = loss_recon_term + beta*kl_divergence
+            # Total loss from Encoder + Decoder = loss from BCE (or negative of log likelihood) + beta*KL(q_phi(z|x) || P(z))
+            total_loss = loss_recon_term + beta*kl_divergence
             # Perform the backward pass from the loss
-            total_loss_encoder.backward()
-            # Update parameters of Encoder keeping weights of Decoder constant
-            optimizer_encoder.step()
+            total_loss.backward()
+            # Update parameters of both Encoder and decoder
+            optimizer.step()
 
-            ################################################################################
-            # Train Decoder
-
-            # Compute forward pass on Decoder
-            mu_phi, log_variance_phi = encoder(image_data)
-
-            # May not require gradients for the below steps
-            with torch.no_grad():
-                epsillon = torch.randn(internalBatchSize,num_instances_epsillon, latent_space_dim) # Draw samples from N(0,I)
-                epsillon = epsillon.to(device) # Move epsillon also to device to perform operations with other tensors on device
-
-            variance_phi = torch.exp(log_variance_phi) # Get back variances from log variances
-            sigma_phi = torch.sqrt(variance_phi)
-
-            # Reparameterization trick
-            latent_variable_z = mu_phi[:,None,:] + (sigma_phi[:,None,:] * epsillon) # This samples z from q_phi (z|x) indirectly through the reparameterization trick
-
-            # Flatten tensor to batchsize*num_instances_epsillon x z_dim to feed to Decoder
-            latent_variable_z = latent_variable_z.reshape(-1,latent_space_dim)
-
-            # Compute forward pass on Decoder
-            # Detach the input while feeding into the Decoder to disconnect the computational graph and avoid
-            #gradient computation for the Encoder
-            reconst_image = decoder(latent_variable_z.detach()) # internalBatchSize*num_instances_epsillon, 1, 28, 28
-
-            reconst_image = reconst_image.reshape(internalBatchSize,num_instances_epsillon, 1, 28, 28)
-
-            # Make multiple copies(num_instances_epsillon number of copies) of the input image for each example data in the batch
-            image_data_expand = image_data.unsqueeze(1).expand(-1, num_instances_epsillon, -1, -1, -1)
-
-            # Compute BCE loss for the reconstruction/log likelihood term
-            loss_recon_term = criterion(reconst_image,image_data_expand)/(internalBatchSize*num_instances_epsillon)
-
-            # KL term does not contribute to the Decoder loss since it is not a function of theta
-
-            # Total Decoder loss = loss from BCE (or negative of log likelihood)
-            total_loss_decoder = loss_recon_term
-            # Perform the backward pass from the loss
-            total_loss_decoder.backward()
-            # Update parameters of Encoder keeping weights of Decoder constant
-            optimizer_decoder.step()
 
 
 
         # Generate an image every N epochs
-        if ((epoch+1)%2 == 0):
-            print(f"Epoch [{epoch+1}/{epochs}], Encoder_loss: {total_loss_encoder.item():.4f}, Decoder_loss: {total_loss_decoder.item():.4f}")
+        if ((epoch+1)%1 == 0):
+            print(f"Epoch [{epoch+1}/{epochs}], loss: {total_loss.item():.4f}")
             # Set Decoder models in eval mode
             decoder.eval()
             with torch.no_grad():
