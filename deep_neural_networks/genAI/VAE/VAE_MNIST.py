@@ -69,7 +69,7 @@ train_loader = DataLoader(train_dataset,batch_size=batchSize,shuffle=True)
 # Define device to run the code on
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-saveImagesFolder = 'VAE_generated_images'
+saveImagesFolder = 'VAE_MNIST_generated_images'
 os.makedirs(saveImagesFolder, exist_ok=True)
 
 # Define Encoder architecture
