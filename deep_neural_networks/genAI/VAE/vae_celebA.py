@@ -6,7 +6,8 @@ Created on Thu Sep 11 16:51:05 2025
 """
 
 """
-In this script, I have implemented the VAE on human faces. The specific architecture was suggested to me by chatGPT
+In this script, I have implemented the VAE on human faces. The human faces data is available from a famous dataset
+called celebA dataset.The specific architecture was suggested to me by chatGPT
 and it is based on architectures presented in several influential works and implementation.
 The results are surprisingly good! It is able to generate decent human faces! With this, I have successfully
 implemented both VAEs and GANs. Next, I will move to DDPMs which are supposedly state of the art.
