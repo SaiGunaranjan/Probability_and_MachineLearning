@@ -8,11 +8,98 @@ Created on Thu Sep 18 13:56:13 2025
 """
 1. Can move the upsampling operation inside the __init__ method and use nn.Upsample
 
+
+19/09/2025
+
+Implement DDPM by regressing over mean
+
+In this commit, I have added a script which implements a variant of DDPM which regresses over the
+mean of the known denoising distribution q. The implementation is based on the video lectures of Pratosh on
+Deep Generative Models. I have also derived the expression for the objective of the DDPM
+(which is a variant of ELBo for hierarchical latent spaces). Also, ideally, when training,
+the consistency /denoising mathcing term should be computed as a sum of losses for each minibatch summed
+over M number of time steps. This is based on the lectures of Pratosh. However, this would need looping over
+the subset of time steps and then summing the loss of each mini batch of examples. This is extremely memory and
+compute intensive. I will change this approach to what is actually done in the original DDPM paper. Since the
+current implementation is very memory intensive, when run on a heavy dataset like celebA, I was running into
+CUDA memory issues and the laptop was hanging eventually leading to code crash. So, affectively, I couldnt get
+to see any results whatsoever with this implementation of DDPM.
+In the next commit, I will modify the time sampling and reduce the compute so that I can alteast run the code.
+
+
+20/09/2025
+
+Modified Time Sampling strategy for training
+
+In this commit, I have modified the time sampling strategy used for training on a mini-batch. In the last commit,
+I was computing the consistency/denoising matching term loss for a given batch of data samples for a subset of
+Time steps. This meant I was computing the loss for a mini batch for a time index t and
+then looping over the subsets of T and summing the losses over all the subsets of T. This was a memory and compute
+heavy operation and I couldnt even get the code running. It was crashing due to 'out of memory on GPU' issues.
+But this was the implementation as discussed in Pratosh video tutorials.
+However, the time sampling is not done this way in the original paper on DDPM. For each example in the mini-batch,
+they compute the consistency term loss for different time steps T.
+In other words, each example has a different time step T over which the loss is computed. We then sum the losses
+of each example of the mini-batch computed for its corresponding time step T. This method of computing
+the consistency term loss is much more compute and memory friendly! I have implemented this method of time sampling
+in this commit. So, I could get the code to run atleast! However, the results/generated images are not good at all!
+The loss is behaving well and is reducing across epochs but this does not reflect in the quality of generated images.
+Even in the original paper on DDPM, they don't regress over mu_q i.e the mean of the reverse denoising distribution
+q(X_t-1|X_t, X_0). In fact, in the paper, they regress over the noise epsilon i.e nise added to X_0 to land at X_t.
+In the nect commit, I will regress over the noise instead of on the mean and see if I can get meaningful generated
+images. But I was still not very sure as to why the regression over mu was not yielding good generated images even
+though the training loss was dropping. On checking online with Google Gemini, it said that regression over mu
+doesnt yield good results for the following reason:
+    When regressing over mean mu_q, the mu_q is a function of X_T and X_0. Hence the output of the U-Net which
+    is mu_theta is regressing over mu_q which is a function of the input. Hence, during training, across epochs,
+    the U-Net NN which is outputing mu_theta(mean of the learnable denoising distribution at time t,
+    P_theta(X_t-1|X_T)) starts coming closer to mu_q(which is a fucntion of the input image). Hence, across epochs,
+    the fit becomes better and the loss drops. So, the U-Net has learnt to condition on the input image. However,
+    during generation, there is no input image X_0 to condition on and also the U-Net has not learnt to generate
+    images without conditioning on the input image. hence, at inferece, it generates garbage.
+    This is what is the explanation from Google Gemini!
+
+However, in the equation for mu_q(which is a function of X_t and X_0), if we replace X_0 in terms of X_t and epsilon
+(using the equation for formward noising process), now mu_q becomes a function of X_t and noise epsilon.
+Now there is no dependence on X_0. So, mu_q is now a function of X_t and noise epsilon(noise added to X_0 to get to X_t).
+With this formulation, the learnable mu_theta also becomes a function of X_t and predicted noise epsilon_theta.
+With this formulation, the U-Net outputs epsilon_theta instead of mu_theta. Hence, the problem of regressing over means
+mu becomes a problem of regression over epsilon! I will make this change in the next script where I will regress over noise!
+
+Also, in the original paper, the reconstruction term loss is not included and hence I have commented out in the code
+as well.
+
+
+I have implemeted U-Net based on the recommendation by chat GPT. U-Net is a DNN which has the following architecture:
+    1. Encoder layers
+    2. BottleNeck Layer
+    3. Decoder layers
+    4. Skip connections or residual connections
+
+The encoder layers increase the size of the feature maps but reduce the size of the image and the decoder
+layers gradually decrease back the size of the feature maps while increasing back the size of the image.
+U-Net is a popular DN architecture used in DDPMs, image segmentation etc. Also, In the DDPM implementation,
+we also feed in the time step as an input to the U-Net. This is to condition the denoising learning on the time step
+Hence, the network learns to denoise based on what time step it is operating at. In the original DDPM paper,
+they added the time embedding to the U_Net and the time embedding was done using a sinusoidal positional embedding.
+So, I have also implemented the sinusoidal time mebedding and added it at each layer of the encoder,
+bottleneck layer, decoder.
+
+
+
+
+
+
+
 """
+
+
+
 
 
 import sys
 import os
+
 
 # Get root directory (parent of DDPM)
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -65,7 +152,7 @@ data_loader = DataLoader(
 # Define where to run the code
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-saveImagesFolder = 'DDPM_generated_faces'
+saveImagesFolder = 'DDPM_generated_faces_meanregress' # 'DDPM_generated_faces'
 os.makedirs(saveImagesFolder, exist_ok=True)
 
 
@@ -339,7 +426,6 @@ image_width = 64
 
 time_embed_dim = 128
 num_time_steps = 1000
-t_subset_size = 1#30
 num_instances_epsilon = 1#10
 beta = torch.linspace(1e-4, 2e-2, num_time_steps) # Linear noise schedules
 alpha = (1 - beta).to(device)
@@ -377,35 +463,38 @@ if __name__ == "__main__":
 
             # Compute forward pass of the UNet for the denoising process
 
-            # Consistency term or Denoise mathcing term
-            t_subset = torch.randint(2, num_time_steps+1, (t_subset_size,), device=device, requires_grad=False) # Sample a subset of T to compute the denosing
-            loss_consistency_term_allt = 0
-            for t in t_subset:
-                # Apply no grad here
-                epsilon = torch.randn(internalBatchSize, num_instances_epsilon, image_data_channels, image_height, image_width, device=device) # Sample from standard normal
-                X_t = torch.sqrt(alpha_bar[t-1])*image_data_expand + torch.sqrt(1 - alpha_bar[t-1])*epsilon
+            # Consistency term or Denoise matching term
+            t_subset = torch.randint(2, num_time_steps+1, (internalBatchSize, num_instances_epsilon), device=device, requires_grad=False) # Sample a subset of T to compute the denosing
+            t = t_subset[:,:,None,None,None]
 
-                # mu_q(xt,x0)
-                mu_q = ((torch.sqrt(alpha[t-1]))*(1-alpha_bar[t-2])*X_t + \
-                    torch.sqrt(alpha_bar[t-2])*(1-alpha[t-1])*image_data_expand)/(1-alpha_bar[t-1])
 
-                # variance_q (t)
-                variance_q_t = ((1-alpha[t-1])*(1-alpha_bar[t-2]))/(1-alpha_bar[t-1])
+            # Apply no grad here
+            epsilon = torch.randn(internalBatchSize, num_instances_epsilon, image_data_channels, image_height, image_width, device=device) # Sample from standard normal
+            X_t = torch.sqrt(alpha_bar[t-1])*image_data_expand + torch.sqrt(1 - alpha_bar[t-1])*epsilon
 
-                #mu_theta(xt)
-                X_t_flat = X_t.reshape(internalBatchSize*num_instances_epsilon, image_data_channels, image_height, image_width)
-                time_index_batch = torch.tensor([t] * (internalBatchSize*num_instances_epsilon), device=device)
+            # mu_q(xt,x0)
+            mu_q = ((torch.sqrt(alpha[t-1]))*(1-alpha_bar[t-2])*X_t + \
+                torch.sqrt(alpha_bar[t-2])*(1-alpha[t-1])*image_data_expand)/(1-alpha_bar[t-1])
 
-                mu_theta_xt = unet(X_t_flat, time_index_batch)
-                mu_theta_xt = mu_theta_xt.reshape(internalBatchSize,num_instances_epsilon,image_data_channels, image_height, image_width)
+            # variance_q (t)
+            variance_q_t = ((1-alpha[t-1])*(1-alpha_bar[t-2]))/(1-alpha_bar[t-1])
 
-                # Loss from consistency/denoising matching term. Mean should be taken only across batches and num_instances_epsilon. Not across the vector/matrix dimension!
-                loss_consistency_term = criterion(mu_theta_xt,mu_q)/(internalBatchSize*num_instances_epsilon)
-                loss_consistency_term = (1/(2*variance_q_t))*loss_consistency_term # There is a variance! (Ideally can be neglected as per paper)
+            #mu_theta(xt)
+            X_t_flat = X_t.reshape(internalBatchSize*num_instances_epsilon, image_data_channels, image_height, image_width)
+            time_index_batch = t_subset.reshape(internalBatchSize*num_instances_epsilon)
 
-                loss_consistency_term_allt += loss_consistency_term # Total loss of the denoising matching term for all the subsets of T
+            mu_theta_xt = unet(X_t_flat, time_index_batch)
+            mu_theta_xt = mu_theta_xt.reshape(internalBatchSize,num_instances_epsilon,image_data_channels, image_height, image_width)
+
+
+            # Loss from consistency/denoising matching term. Mean should be taken only across batches and num_instances_epsilon. Not across the vector/matrix dimension!
+            # Total loss of the denoising matching term for all the subsets of T. There is a variance! (Ideally can be neglected as per paper)
+            loss_consistency_term = torch.sum((1/(2*variance_q_t)) * (mu_theta_xt - mu_q)**2) / (internalBatchSize*num_instances_epsilon)
+            # loss_consistency_term = torch.sum((mu_theta_xt - mu_q)**2) / (internalBatchSize*num_instances_epsilon) # If we dont want to consider the variance term
+
 
             # Reconstruction term
+
             # epsilon = torch.randn(internalBatchSize, num_instances_epsilon, image_data_channels, image_height, image_width, device=device) # Sample from standard normal
             # X_1 = torch.sqrt(alpha[0])*image_data_expand + torch.sqrt(1 - alpha[0])*epsilon
             # X_1_flat = X_1.reshape(internalBatchSize*num_instances_epsilon, image_data_channels, image_height, image_width)
@@ -419,7 +508,7 @@ if __name__ == "__main__":
             # loss_reconstruction_term = criterion(mu_theta_x1,image_data_expand)/(internalBatchSize*num_instances_epsilon)
             # loss_reconstruction_term = (1/(2*variance_q_1))*loss_reconstruction_term # There is a variance! (Ideally can be neglected as per paper)
 
-            loss_ddpm = loss_consistency_term_allt #+ loss_reconstruction_term
+            loss_ddpm = loss_consistency_term #+ loss_reconstruction_term
 
             loss_ddpm.backward()
 
@@ -439,9 +528,10 @@ if __name__ == "__main__":
                     mu_theta_xt = unet(X_t,time_index_batch)
                     epsilon = torch.randn(numGeneratedImages, image_data_channels, image_height, image_width, device=device) # Sample from standard normal
                     if t > 1:
-                        variance_q_t = ((1-alpha[t-1])*(1-alpha_bar[t-2]))/(1-alpha_bar[t-1])
+                        # Sometime a constant scheduler variance is used in place of known denoising variances
+                        variance_q_t = beta[t-1]#((1-alpha[t-1])*(1-alpha_bar[t-2]))/(1-alpha_bar[t-1])
                     else:
-                        variance_q_t = 1-alpha[0]
+                        variance_q_t = torch.tensor(0,device=device)#1-alpha[0] # Last step, generally we dont add any noise
 
                     X_tminus1 = mu_theta_xt + torch.sqrt(variance_q_t)*epsilon
                     X_t = X_tminus1
