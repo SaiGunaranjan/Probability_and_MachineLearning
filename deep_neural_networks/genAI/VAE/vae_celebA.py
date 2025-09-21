@@ -15,6 +15,13 @@ implemented both VAEs and GANs. Next, I will move to DDPMs which are supposedly 
 
 
 import os
+import sys
+
+# Get root directory (parent of DDPM)
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(root_dir)
+
+
 import torch.nn as nn
 from torchvision import transforms
 from torch.utils.data import DataLoader
