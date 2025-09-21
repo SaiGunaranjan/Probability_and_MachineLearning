@@ -105,6 +105,14 @@ genearted images! There is one issue though. When I run on google colab, the gen
 where as when I run locally, I get meaningful images (even though running on laptop takes a lot of time). I need to debug this!
 
 
+I have also added a text file explaining the U-Net architecture used in
+my DDPM implementation. This is on similar lines to OpenAI's improved
+DDPM and the Hugging Face diffusers library: The UNet2DModel. The U-Net
+architecture uses new concepts like Group Normalization, Sigmoid Linear
+Unit and skip/residual connections
+
+
+
 
 
 """
