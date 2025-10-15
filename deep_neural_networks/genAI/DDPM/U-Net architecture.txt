@@ -1,0 +1,114 @@
+OpenAI's Improved DDPM: My architecture is very aligned with this. It uses a similar backbone with GroupNorm, SiLU, and time embedding injection.
+
+Hugging Face diffusers library: The UNet2DModel is structurally almost identical to what I've implemented, using GroupNorm, SiLU, additive skip connections, and time embedding conditioning.
+
+
+Input: 3x64x64
+
+
+Enocder
+
+Conv Block 1:
+
+Conv2D: 64 filters, kernel=3×3, stride=1, padding=1 → Output: 64×64×64
+GroupNorm + Swish Activation
+Inject Time embedding: Map 128 --> numChannels (64), broadcase as 1x1x64 and then make it as 64x64x64
+Conv2D: 64 filters, kernel=3×3, stride=1, padding=1 → Output: 64×64×64
+GroupNorm + Swish Activation
+Downsample: Conv2D: 64 filters, kernel=4×4, stride=2, padding=1 → Output: 32×32×64
+
+
+
+Conv Block 2:
+
+Conv2D: 128 filters, kernel=3×3, stride=1, padding=1 → Output: 32×32×128
+GroupNorm + Swish Activation
+Inject Time embedding: Map 128 --> numChannels (128), broadcase as 1x1x128 and then make it as 32x32x128
+Conv2D: 128 filters, kernel=3×3, stride=1, padding=1 → Output: 32×32×128
+GroupNorm + Swish Activation
+Downsample: Conv2D, kernel=4×4, stride=2, padding=1 → Output: 16×16×128
+
+
+Conv Block 3:
+
+Conv2D: 256 filters, kernel=3×3, stride=1, padding=1 → Output: 16×16×256
+GroupNorm + Swish Activation
+Inject Time embedding: Map 128 --> numChannels (256), broadcase as 1x1x256 and then make it as 16x16x256
+Conv2D: 256 filters, kernel=3×3, stride=1, padding=1 → Output: 16×16×256
+GroupNorm + Swish Activation
+Downsample: Conv2D, kernel=4×4, stride=2, padding=1 → Output: 8×8×256
+
+
+
+Conv Block 4:
+
+Conv2D: 512 filters, kernel=3×3, stride=1, padding=1 → Output: 8×8×512
+GroupNorm + Swish Activation
+Inject Time embedding: Map 128 --> numChannels (512), broadcase as 1x1x512 and then make it as 8x8x512
+Conv2D: 512 filters, kernel=3×3, stride=1, padding=1 → Output: 8×8×512
+GroupNorm + Swish Activation
+Downsample: Conv2D, kernel=4×4, stride=2, padding=1 → Output: 4×4×512
+
+
+
+
+3. Bottleneck
+
+Conv2D: 512 filters, kernel=3×3, stride=1, padding=1 → Output: 4×4×512
+GroupNorm + Swish Activation
+Inject Time embedding: Map 128 --> numChannels (512), broadcase as 1x1x512 and then make it as 4x4x512
+Conv2D: 512 filters, kernel=3×3, stride=1, padding=1 → Output: 4×4×512
+GroupNorm + Swish Activation
+
+
+4. Decoder (Convolutional Neural Network)
+
+
+Deconv Block 1:
+
+Upsample: Nearest-neighbor upsampling (scale factor=2) → Output: 8×8×512
+Conv2D: 512 filters, kernel=3×3, stride=1, padding=1 → Output: 8×8×512
+GroupNorm + Swish Activation
+Inject Time embedding: Map 128 --> numChannels (512), broadcase as 1x1x512 and then make it as 8x8x512
+Conv2D: 512 filters, kernel=3×3, stride=1, padding=1 → Output: 8×8×512
+GroupNorm + Swish Activation
+Skip connection: Add feature map from Conv Block 4.
+
+
+Deconv Block 2:
+
+Upsample: Nearest-neighbor upsampling (scale factor=2) → Output: 16×16×256
+Conv2D: 256 filters, kernel=3×3, stride=1, padding=1 → Output: 16×16×256
+GroupNorm + Swish Activation
+Inject Time embedding: Map 128 --> numChannels (256), broadcase as 1x1x256 and then make it as 16x16x256
+Conv2D: 256 filters, kernel=3×3, stride=1, padding=1 → Output: 16×16×256
+GroupNorm + Swish Activation
+Skip connection: Add feature map from Conv Block 3.
+
+
+Deconv Block 3:
+
+Upsample: Nearest-neighbor upsampling (scale factor=2) → Output: 32×32×128
+Conv2D: 128 filters, kernel=3×3, stride=1, padding=1 → Output: 32×32×128
+GroupNorm + Swish Activation
+Inject Time embedding: Map 128 --> numChannels (128), broadcase as 1x1x128 and then make it as 32x32x128
+Conv2D: 128 filters, kernel=3×3, stride=1, padding=1 → Output: 32×32×128
+GroupNorm + Swish Activation
+Skip connection: Add feature map from Conv Block 2.
+
+Deconv Block 4:
+
+Upsample: Nearest-neighbor upsampling (scale factor=2) → Output: 64×64×64
+Conv2D: 64 filters, kernel=3×3, stride=1, padding=1 → Output: 64×64×64
+GroupNorm + Swish Activation
+Inject Time embedding: Map 128 --> numChannels (64), broadcase as 1x1x64 and then make it as 64x64x64
+Conv2D: 64 filters, kernel=3×3, stride=1, padding=1 → Output: 64×64×64
+GroupNorm + Swish Activation
+Skip connection: Add feature map from Conv Block 1.
+
+
+Conv2D: 3 filters, kernel=3×3, stride=1, padding=1 → Output: 64×64×3
+Output: Estimated noise 
+
+
+
